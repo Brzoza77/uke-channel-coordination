@@ -183,11 +183,22 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
     accepted_assessments = list(analysis.accepted_assessments)
     conditional_assessments = list(analysis.conditional_assessments)
     rejected_assessments = list(analysis.rejected_assessments)
-
+    candidate_frequency_records = list(analysis.candidate_frequency_records)
+    record_by_key = {
+        (record.channel_ab, record.channel_ba, record.polarization): record
+        for record in candidate_frequency_records
+    }
     display_assessments = accepted_assessments if accepted_assessments else (conditional_assessments + rejected_assessments)
+    display_assessment_by_key = {
+        (item.candidate.channel_ab, item.candidate.channel_ba, item.candidate.polarization): item
+        for item in display_assessments
+    }
 
     recommendations: list[ChannelRecommendation] = []
     for rank, assessment in enumerate(display_assessments[:20], start=1):
+        record = record_by_key.get(
+            (assessment.candidate.channel_ab, assessment.candidate.channel_ba, assessment.candidate.polarization)
+        )
         top_conflicts = [
             f"{conflict.link_id} | {conflict.operator_name or '-'} | {conflict.risk_level} | {conflict.score:.1f}"
             for conflict in assessment.conflicts[:5]
@@ -200,16 +211,17 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             for value in (conflict.estimated_degradation_victim_db, conflict.estimated_degradation_aggressor_db)
             if value is not None
         ]
-        ci_values = [
-            value
-            for conflict in assessment.conflicts
-            for value in (conflict.estimated_ci_victim_db, conflict.estimated_ci_aggressor_db)
-            if value is not None
-        ]
+        ci_values = [result.ci_db for result in (record.pairwise_results if record else []) if result.ci_db is not None]
         td_worst = max(td_values) if td_values else 0.0
         ci_worst = min(ci_values) if ci_values else 999.0
+        margin_ab = record.worst_margin_ab_db if record else None
+        margin_ba = record.worst_margin_ba_db if record else None
         decision_core = (
             f"A→B={assessment.status_ab}, B→A={assessment.status_ba}; "
+            f"MargAB={margin_ab:.2f} dB, MargBA={margin_ba:.2f} dB; "
+            f"TDmax={td_worst:.2f} dB; CImin={ci_worst:.1f} dB"
+            if margin_ab is not None and margin_ba is not None
+            else f"A→B={assessment.status_ab}, B→A={assessment.status_ba}; "
             f"TDmax={td_worst:.2f} dB; CImin={ci_worst:.1f} dB"
         )
 
@@ -245,6 +257,9 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                     "plan_symbol": assessment.candidate.plan_symbol,
                     "freq_ab_ghz": assessment.candidate.freq_ab_ghz,
                     "freq_ba_ghz": assessment.candidate.freq_ba_ghz,
+                    "requested_distance": record.requested_distance if record else None,
+                    "worst_margin_ab_db": margin_ab,
+                    "worst_margin_ba_db": margin_ba,
                 },
             )
         )
@@ -297,6 +312,11 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         )
 
     best_assessment = display_assessments[0] if display_assessments else None
+    best_record = None
+    if best_assessment:
+        best_record = record_by_key.get(
+            (best_assessment.candidate.channel_ab, best_assessment.candidate.channel_ba, best_assessment.candidate.polarization)
+        )
 
     requested_assessments = [
         item
@@ -317,6 +337,15 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             )
         else:
             requested_assessment = requested_assessments[0]
+    requested_record = None
+    if requested_assessment:
+        requested_record = record_by_key.get(
+            (
+                requested_assessment.candidate.channel_ab,
+                requested_assessment.candidate.channel_ba,
+                requested_assessment.candidate.polarization,
+            )
+        )
 
     requested_channel_top_conflicts: list[dict] = []
     if requested_assessment:
@@ -446,7 +475,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         best_channel_ab=best_assessment.candidate.channel_ab if best_assessment else None,
         best_channel_ba=best_assessment.candidate.channel_ba if best_assessment else None,
         best_polarization=best_assessment.candidate.polarization if best_assessment else None,
-        best_score=best_assessment.score if best_assessment else None,
+        best_score=best_record.score if best_record else (best_assessment.score if best_assessment else None),
     )
 
     debug = {
@@ -463,6 +492,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         },
         "candidate_links_count": len(analysis.candidate_links),
         "channel_candidates_count": len(analysis.channel_candidates),
+        "candidate_frequency_records_count": len(candidate_frequency_records),
         "accepted_count": len(accepted_assessments),
         "conditional_count": len(conditional_assessments),
         "rejected_count": len(rejected_assessments),
@@ -474,7 +504,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         },
         "requested_channel_assessment": {
             "status": getattr(requested_assessment, "status", None),
-            "score": requested_assessment.score if requested_assessment else None,
+            "score": requested_record.score if requested_record else (requested_assessment.score if requested_assessment else None),
             "red_conflicts": requested_assessment.red_conflicts if requested_assessment else None,
             "amber_conflicts": requested_assessment.amber_conflicts if requested_assessment else None,
             "green_conflicts": requested_assessment.green_conflicts if requested_assessment else None,
@@ -482,25 +512,50 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             "candidate_links_count": requested_assessment.candidate_links_count if requested_assessment else None,
             "best_explanation": requested_assessment.best_explanation if requested_assessment else None,
             "rejection_reasons": list(getattr(requested_assessment, "rejection_reasons", [])) if requested_assessment else [],
+            "estimated_margin_ab_db": requested_record.worst_margin_ab_db if requested_record else None,
+            "estimated_margin_ba_db": requested_record.worst_margin_ba_db if requested_record else None,
             "channel_ab": requested_assessment.candidate.channel_ab if requested_assessment else None,
             "channel_ba": requested_assessment.candidate.channel_ba if requested_assessment else None,
             "candidate_polarization": requested_assessment.candidate.polarization if requested_assessment else None,
+            "requested_distance": requested_record.requested_distance if requested_record else None,
             "top_conflicts_count": len(requested_assessment.conflicts) if requested_assessment else 0,
         } if requested_assessment else None,
         "requested_channel_top_conflicts": requested_channel_top_conflicts,
         "top_candidates": [
             {
-                "status": getattr(item, "status", "UNKNOWN"),
-                "channel_ab": item.candidate.channel_ab,
-                "channel_ba": item.candidate.channel_ba,
-                "polarization": item.candidate.polarization,
-                "score": item.score,
-                "red_conflicts": item.red_conflicts,
-                "amber_conflicts": item.amber_conflicts,
-                "best_explanation": item.best_explanation,
-                "rejection_reasons": list(getattr(item, "rejection_reasons", [])),
+                "status": record.status,
+                "status_ab": record.status_ab,
+                "status_ba": record.status_ba,
+                "channel_ab": record.channel_ab,
+                "channel_ba": record.channel_ba,
+                "polarization": record.polarization,
+                "score": record.score,
+                "requested_distance": record.requested_distance,
+                "pairwise_results_count": len(record.pairwise_results),
+                "cochannel_pairwise_count": sum(1 for result in record.pairwise_results if result.conflict_type == "cochannel"),
+                "red_pairwise_count": sum(1 for result in record.pairwise_results if result.risk_level == "red"),
+                "best_explanation": (
+                    display_assessment_by_key[
+                        (record.channel_ab, record.channel_ba, record.polarization)
+                    ].best_explanation
+                    if (record.channel_ab, record.channel_ba, record.polarization) in display_assessment_by_key
+                    else None
+                ),
+                "estimated_margin_ab_db": record.worst_margin_ab_db,
+                "estimated_margin_ba_db": record.worst_margin_ba_db,
+                "rejection_reasons": (
+                    list(
+                        getattr(
+                            display_assessment_by_key[(record.channel_ab, record.channel_ba, record.polarization)],
+                            "rejection_reasons",
+                            [],
+                        )
+                    )
+                    if (record.channel_ab, record.channel_ba, record.polarization) in display_assessment_by_key
+                    else []
+                ),
             }
-            for item in display_assessments[:10]
+            for record in candidate_frequency_records[:10]
         ],
     }
 

@@ -9,8 +9,12 @@ Projekt sklada sie z:
 - API i raportow PDF w `app.py`
 - frontendu dashboardowego w `index.html` i `static/`
 
+Uwaga:
+- pliki `*.mdb`, `*.xlsx`, `logs/`, `reports/`, `data/*.sqlite` oraz `.vendor/` nie sa przechowywane w repo
+- do analizy MDB na nowej maszynie trzeba uruchomic bootstrap zaleznosci z `bootstrap_mdb.sh`
+
 Aktualna wersja silnika:
-- `hcm-consultation-filter-2026-03-14`
+- `hcm-margin-first-2026-03-15`
 
 ## Szybki start
 
@@ -65,6 +69,8 @@ PORT=8013 ./run.sh
 - [Architektura](docs/ARCHITECTURE.md)
 - [Operacje i workflow](docs/OPERATIONS.md)
 - [Git - szybka sciaga](docs/GIT.md)
+- [Workflow UKE - reverse engineering](docs/UKE_WORKFLOW.md)
+- [Eksport MDB UKE](docs/UKE_MDB_EXPORT.md)
 
 ## Git
 

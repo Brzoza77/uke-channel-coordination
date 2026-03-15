@@ -109,6 +109,8 @@ def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]
         row["engine_ci_aggressor_db"] = (
             f"{(engine_conflict.estimated_ci_aggressor_db or 0.0):.6f}" if engine_conflict else ""
         )
+        row["engine_margin_ab_db"] = f"{(engine_conflict.estimated_margin_ab_db or 0.0):.6f}" if engine_conflict else ""
+        row["engine_margin_ba_db"] = f"{(engine_conflict.estimated_margin_ba_db or 0.0):.6f}" if engine_conflict else ""
         row["engine_effective_freq_delta_mhz"] = (
             f"{(engine_conflict.effective_freq_delta_mhz or 0.0):.6f}" if engine_conflict else ""
         )
@@ -151,6 +153,13 @@ def main() -> None:
         reader = csv.DictReader(fh)
         rows = list(reader)
         fieldnames = reader.fieldnames or []
+    extra_fieldnames = [
+        "engine_margin_ab_db",
+        "engine_margin_ba_db",
+    ]
+    for name in extra_fieldnames:
+        if name not in fieldnames:
+            fieldnames.append(name)
 
     request = parse_wlr_file(wlr_path)
     analysis_result = analysis_engine.analyze_wlr_request(request)
@@ -178,6 +187,22 @@ def main() -> None:
         "requested_status": requested_assessment.status if requested_assessment else None,
         "requested_status_ab": requested_assessment.status_ab if requested_assessment else None,
         "requested_status_ba": requested_assessment.status_ba if requested_assessment else None,
+        "requested_margin_ab_db": min(
+            (
+                conflict.estimated_margin_ab_db
+                for conflict in (requested_assessment.conflicts if requested_assessment else [])
+                if conflict.estimated_margin_ab_db is not None
+            ),
+            default=None,
+        ),
+        "requested_margin_ba_db": min(
+            (
+                conflict.estimated_margin_ba_db
+                for conflict in (requested_assessment.conflicts if requested_assessment else [])
+                if conflict.estimated_margin_ba_db is not None
+            ),
+            default=None,
+        ),
         "out_csv": str(out_csv),
     }
     out_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

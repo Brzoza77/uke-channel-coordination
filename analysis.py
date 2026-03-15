@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-consultation-filter-2026-03-14"
+ENGINE_VERSION = "hcm-uke-adapter-ranking-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -65,6 +65,60 @@ class SearchBBox:
 
 
 @dataclass(frozen=True)
+class EMCInput:
+    direction: str
+    aggressor_eirp_dbm: float
+    aggressor_atpc_db: float
+    aggressor_freq_ghz: float
+    victim_wanted_eirp_dbm: float
+    victim_wanted_freq_ghz: float
+    victim_bw_mhz: float
+    victim_noise_figure_db: float
+    victim_rx_antenna_gain_dbi: float
+    victim_rx_attenuation_db: float
+    overlap_ratio: float
+    freq_delta_mhz: float
+    cross_pol_bonus_db: float
+    enable_mask_lookup: bool
+
+
+@dataclass(frozen=True)
+class PairwiseEmcResult:
+    direction: str
+    interfering_link_id: str
+    interfering_permit_number: Optional[str]
+    interfering_operator_name: Optional[str]
+    conflict_type: str
+    relationship: str
+    distance_km: float
+    margin_db: Optional[float]
+    ci_db: Optional[float]
+    degradation_db: Optional[float]
+    overlap_ratio: float
+    effective_freq_delta_mhz: Optional[float]
+    risk_level: str
+    explanation: str
+
+
+@dataclass(frozen=True)
+class CandidateFrequencyRecord:
+    plan_symbol: str
+    channel_ab: str
+    channel_ba: str
+    polarization: str
+    freq_ab_ghz: float
+    freq_ba_ghz: float
+    status: str
+    status_ab: str
+    status_ba: str
+    requested_distance: int
+    score: float
+    worst_margin_ab_db: Optional[float]
+    worst_margin_ba_db: Optional[float]
+    pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class ConflictAssessment:
     link_id: str
     operator_name: Optional[str]
@@ -88,6 +142,8 @@ class ConflictAssessment:
     estimated_ci_aggressor_db: Optional[float]
     estimated_degradation_victim_db: Optional[float]
     estimated_degradation_aggressor_db: Optional[float]
+    estimated_margin_ab_db: Optional[float]
+    estimated_margin_ba_db: Optional[float]
     decision_explanation: str
     relationship: str
     shared_site_count: int
@@ -120,10 +176,145 @@ class AnalysisResult:
     bbox: SearchBBox
     candidate_links: list[DuplexLink]
     channel_candidates: list[ChannelCandidate]
+    candidate_frequency_records: list[CandidateFrequencyRecord]
     accepted_assessments: list[ChannelAssessment]
     conditional_assessments: list[ChannelAssessment]
     rejected_assessments: list[ChannelAssessment]
     channel_assessments: list[ChannelAssessment]
+
+
+def _min_optional(values: list[Optional[float]]) -> Optional[float]:
+    concrete = [value for value in values if value is not None]
+    return min(concrete) if concrete else None
+
+
+def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEmcResult]:
+    results: list[PairwiseEmcResult] = []
+    for conflict in assessment.conflicts:
+        results.append(
+            PairwiseEmcResult(
+                direction="A->B",
+                interfering_link_id=conflict.link_id,
+                interfering_permit_number=conflict.permit_number,
+                interfering_operator_name=conflict.operator_name,
+                conflict_type=conflict.conflict_type,
+                relationship=conflict.relationship,
+                distance_km=conflict.distance_km,
+                margin_db=conflict.estimated_margin_ab_db,
+                ci_db=conflict.details.get("estimated_ci_ab_db"),
+                degradation_db=conflict.details.get("estimated_degradation_ab_db"),
+                overlap_ratio=conflict.overlap_ab_ratio,
+                effective_freq_delta_mhz=conflict.effective_freq_delta_mhz,
+                risk_level=conflict.risk_level,
+                explanation=conflict.decision_explanation,
+            )
+        )
+        results.append(
+            PairwiseEmcResult(
+                direction="B->A",
+                interfering_link_id=conflict.link_id,
+                interfering_permit_number=conflict.permit_number,
+                interfering_operator_name=conflict.operator_name,
+                conflict_type=conflict.conflict_type,
+                relationship=conflict.relationship,
+                distance_km=conflict.distance_km,
+                margin_db=conflict.estimated_margin_ba_db,
+                ci_db=conflict.details.get("estimated_ci_ba_db"),
+                degradation_db=conflict.details.get("estimated_degradation_ba_db"),
+                overlap_ratio=conflict.overlap_ba_ratio,
+                effective_freq_delta_mhz=conflict.effective_freq_delta_mhz,
+                risk_level=conflict.risk_level,
+                explanation=conflict.decision_explanation,
+            )
+        )
+    return results
+
+
+def build_candidate_frequency_record(
+    request: WlrRequest,
+    assessment: ChannelAssessment,
+) -> CandidateFrequencyRecord:
+    pairwise_results = build_pairwise_emc_results(assessment)
+    worst_margin_ab_db = _min_optional([result.margin_db for result in pairwise_results if result.direction == "A->B"])
+    worst_margin_ba_db = _min_optional([result.margin_db for result in pairwise_results if result.direction == "B->A"])
+    return CandidateFrequencyRecord(
+        plan_symbol=assessment.candidate.plan_symbol,
+        channel_ab=assessment.candidate.channel_ab,
+        channel_ba=assessment.candidate.channel_ba,
+        polarization=assessment.candidate.polarization,
+        freq_ab_ghz=assessment.candidate.freq_ab_ghz,
+        freq_ba_ghz=assessment.candidate.freq_ba_ghz,
+        status=assessment.status,
+        status_ab=assessment.status_ab,
+        status_ba=assessment.status_ba,
+        requested_distance=requested_channel_distance(request, assessment.candidate),
+        score=assessment.score,
+        worst_margin_ab_db=worst_margin_ab_db,
+        worst_margin_ba_db=worst_margin_ba_db,
+        pairwise_results=pairwise_results,
+    )
+
+
+def build_candidate_frequency_records(
+    request: WlrRequest,
+    assessments: list[ChannelAssessment],
+) -> list[CandidateFrequencyRecord]:
+    return [build_candidate_frequency_record(request, assessment) for assessment in assessments]
+
+
+def _record_worst_margin(record: CandidateFrequencyRecord) -> float:
+    margins = [m for m in (record.worst_margin_ab_db, record.worst_margin_ba_db) if m is not None]
+    return min(margins) if margins else 999.0
+
+
+def _record_pairwise_red_count(record: CandidateFrequencyRecord) -> int:
+    return sum(1 for result in record.pairwise_results if result.risk_level == "red")
+
+
+def _record_pairwise_cochannel_count(record: CandidateFrequencyRecord) -> int:
+    return sum(1 for result in record.pairwise_results if result.conflict_type == "cochannel")
+
+
+def _record_status_priority(record: CandidateFrequencyRecord) -> tuple[int, int]:
+    both_ok = 0 if record.status_ab == "ACCEPTED" and record.status_ba == "ACCEPTED" else 1
+    one_ok = 0 if record.status_ab == "ACCEPTED" or record.status_ba == "ACCEPTED" else 1
+    return both_ok, one_ok
+
+
+def _candidate_record_sort_key(
+    request: WlrRequest,
+    record: CandidateFrequencyRecord,
+    prioritize_orientation: bool,
+) -> tuple[Any, ...]:
+    candidate = ChannelCandidate(
+        plan_symbol=record.plan_symbol,
+        channel_ab=record.channel_ab,
+        channel_ba=record.channel_ba,
+        freq_ab_ghz=record.freq_ab_ghz,
+        freq_ba_ghz=record.freq_ba_ghz,
+        polarization=record.polarization,
+    )
+    orientation = orientation_preference_penalty(request, candidate) if prioritize_orientation else 0
+    both_ok, one_ok = _record_status_priority(record)
+    return (
+        status_rank(record.status),
+        both_ok,
+        one_ok,
+        orientation,
+        -_record_worst_margin(record),
+        _record_pairwise_cochannel_count(record),
+        _record_pairwise_red_count(record),
+        record.requested_distance,
+        polarization_preference_penalty(request, candidate),
+        record.score,
+        record.channel_ab,
+        record.channel_ba,
+        record.polarization,
+    )
+
+
+def status_rank(status: str) -> int:
+    return {"ACCEPTED": 0, "CONDITIONAL": 1, "REJECTED": 2}.get(status, 9)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -718,7 +909,58 @@ def _wanted_signal_dbm(
     )
 
 
+def _build_emc_input(
+    direction: str,
+    aggressor_eirp_dbm: float,
+    aggressor_atpc_db: float,
+    aggressor_freq_ghz: float,
+    victim_wanted_eirp_dbm: float,
+    victim_wanted_freq_ghz: float,
+    victim_bw_mhz: float,
+    victim_noise_figure_db: float,
+    victim_rx_antenna_gain_dbi: float,
+    victim_rx_attenuation_db: float,
+    overlap_ratio: float,
+    freq_delta_mhz: float,
+    cross_pol_bonus_db: float,
+    enable_mask_lookup: bool,
+) -> EMCInput:
+    return EMCInput(
+        direction=direction,
+        aggressor_eirp_dbm=aggressor_eirp_dbm,
+        aggressor_atpc_db=aggressor_atpc_db,
+        aggressor_freq_ghz=aggressor_freq_ghz,
+        victim_wanted_eirp_dbm=victim_wanted_eirp_dbm,
+        victim_wanted_freq_ghz=victim_wanted_freq_ghz,
+        victim_bw_mhz=victim_bw_mhz,
+        victim_noise_figure_db=victim_noise_figure_db,
+        victim_rx_antenna_gain_dbi=victim_rx_antenna_gain_dbi,
+        victim_rx_attenuation_db=victim_rx_attenuation_db,
+        overlap_ratio=overlap_ratio,
+        freq_delta_mhz=freq_delta_mhz,
+        cross_pol_bonus_db=cross_pol_bonus_db,
+        enable_mask_lookup=enable_mask_lookup,
+    )
+
+
+def _emc_margin_db(ci_db: float, degradation_db: float) -> float:
+    # Positive margin means the pair still fits within ACCEPTED thresholds.
+    degradation_margin_db = MAX_ACCEPTED_DEGRADATION_DB - degradation_db
+    ci_margin_db = ci_db - MIN_ACCEPTED_CI_DB
+    return min(degradation_margin_db, ci_margin_db)
+
+
+def _emc_margin_at_thresholds(
+    ci_db: float,
+    degradation_db: float,
+    ci_threshold_db: float,
+    degradation_threshold_db: float,
+) -> float:
+    return min(degradation_threshold_db - degradation_db, ci_db - ci_threshold_db)
+
+
 def _directional_interference_case(
+    direction: str,
     aggressor_tx_site: Any,
     aggressor_intended_rx_site: Any,
     aggressor_eirp_dbm: float,
@@ -737,6 +979,22 @@ def _directional_interference_case(
     cross_pol_bonus_db: float,
     enable_mask_lookup: bool = False,
 ) -> dict[str, float]:
+    emc_input = _build_emc_input(
+        direction=direction,
+        aggressor_eirp_dbm=aggressor_eirp_dbm,
+        aggressor_atpc_db=aggressor_atpc_db,
+        aggressor_freq_ghz=aggressor_freq_ghz,
+        victim_wanted_eirp_dbm=victim_wanted_eirp_dbm,
+        victim_wanted_freq_ghz=victim_wanted_freq_ghz,
+        victim_bw_mhz=victim_bw_mhz,
+        victim_noise_figure_db=victim_noise_figure_db,
+        victim_rx_antenna_gain_dbi=victim_rx_antenna_gain_dbi,
+        victim_rx_attenuation_db=victim_rx_attenuation_db,
+        overlap_ratio=overlap_ratio,
+        freq_delta_mhz=freq_delta_mhz,
+        cross_pol_bonus_db=cross_pol_bonus_db,
+        enable_mask_lookup=enable_mask_lookup,
+    )
     coupling_distance_km = max(_site_distance_km(aggressor_tx_site, victim_rx_site), 0.05)
     path_loss_db = fspl_db(coupling_distance_km, min(victim_wanted_freq_ghz, aggressor_freq_ghz)) + DEFAULT_MISC_LOSS_DB
     endpoint_penalty_db = _endpoint_discrimination_penalty_db(
@@ -785,6 +1043,7 @@ def _directional_interference_case(
     noise_dbm = thermal_noise_dbm(victim_bw_mhz, victim_noise_figure_db)
     ci_db = wanted_signal_dbm - interference_dbm
     degradation_db = threshold_degradation_db(interference_dbm, noise_dbm)
+    margin_db = _emc_margin_db(ci_db, degradation_db)
     return {
         "distance_km": coupling_distance_km,
         "endpoint_penalty_db": endpoint_penalty_db,
@@ -795,6 +1054,8 @@ def _directional_interference_case(
         "noise_dbm": noise_dbm,
         "ci_db": ci_db,
         "degradation_db": degradation_db,
+        "margin_db": margin_db,
+        "emc_input": emc_input,
     }
 
 
@@ -875,6 +1136,7 @@ def estimate_interference_metrics(
     link_rx_attenuation_ba_db = link.emission_ba.rx_antenna_attenuation_db or 0.0
 
     ab_incoming_direct = _directional_interference_case(
+        direction="ab_incoming_direct",
         aggressor_tx_site=link.site_a,
         aggressor_intended_rx_site=link.site_b,
         aggressor_eirp_dbm=link_eirp_ab_dbm,
@@ -894,6 +1156,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=enable_mask_lookup_ab,
     )
     ab_incoming_cross = _directional_interference_case(
+        direction="ab_incoming_cross",
         aggressor_tx_site=link.site_b,
         aggressor_intended_rx_site=link.site_a,
         aggressor_eirp_dbm=link_eirp_ba_dbm,
@@ -913,6 +1176,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=enable_mask_lookup_ba,
     )
     ab_outgoing_direct = _directional_interference_case(
+        direction="ab_outgoing_direct",
         aggressor_tx_site=request.site_a,
         aggressor_intended_rx_site=request.site_b,
         aggressor_eirp_dbm=request_eirp_ab_dbm,
@@ -932,6 +1196,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=False,
     )
     ab_outgoing_cross = _directional_interference_case(
+        direction="ab_outgoing_cross",
         aggressor_tx_site=request.site_a,
         aggressor_intended_rx_site=request.site_b,
         aggressor_eirp_dbm=request_eirp_ab_dbm,
@@ -951,6 +1216,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=False,
     )
     ba_incoming_direct = _directional_interference_case(
+        direction="ba_incoming_direct",
         aggressor_tx_site=link.site_b,
         aggressor_intended_rx_site=link.site_a,
         aggressor_eirp_dbm=link_eirp_ba_dbm,
@@ -970,6 +1236,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=enable_mask_lookup_ba,
     )
     ba_incoming_cross = _directional_interference_case(
+        direction="ba_incoming_cross",
         aggressor_tx_site=link.site_a,
         aggressor_intended_rx_site=link.site_b,
         aggressor_eirp_dbm=link_eirp_ab_dbm,
@@ -989,6 +1256,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=enable_mask_lookup_ab,
     )
     ba_outgoing_direct = _directional_interference_case(
+        direction="ba_outgoing_direct",
         aggressor_tx_site=request.site_b,
         aggressor_intended_rx_site=request.site_a,
         aggressor_eirp_dbm=request_eirp_ba_dbm,
@@ -1008,6 +1276,7 @@ def estimate_interference_metrics(
         enable_mask_lookup=False,
     )
     ba_outgoing_cross = _directional_interference_case(
+        direction="ba_outgoing_cross",
         aggressor_tx_site=request.site_b,
         aggressor_intended_rx_site=request.site_a,
         aggressor_eirp_dbm=request_eirp_ba_dbm,
@@ -1064,6 +1333,8 @@ def estimate_interference_metrics(
     degradation_ba_db = max(ba_incoming_case["degradation_db"], ba_outgoing_case["degradation_db"])
     ci_ab_db = min(ab_incoming_case["ci_db"], ab_outgoing_case["ci_db"])
     ci_ba_db = min(ba_incoming_case["ci_db"], ba_outgoing_case["ci_db"])
+    margin_ab_db = min(ab_incoming_case["margin_db"], ab_outgoing_case["margin_db"])
+    margin_ba_db = min(ba_incoming_case["margin_db"], ba_outgoing_case["margin_db"])
     spectral_coupling_db = -md_db
 
     return {
@@ -1099,6 +1370,8 @@ def estimate_interference_metrics(
         "estimated_ci_ba_db": ci_ba_db,
         "estimated_degradation_ab_db": degradation_ab_db,
         "estimated_degradation_ba_db": degradation_ba_db,
+        "estimated_margin_ab_db": margin_ab_db,
+        "estimated_margin_ba_db": margin_ba_db,
         "ab_incoming_case": ab_incoming_case,
         "ab_outgoing_case": ab_outgoing_case,
         "ba_incoming_case": ba_incoming_case,
@@ -1148,19 +1421,16 @@ def classify_risk(
 
 def is_blocking_conflict(conflict: ConflictAssessment) -> bool:
     max_overlap = max(conflict.overlap_ab_ratio or 0.0, conflict.overlap_ba_ratio or 0.0)
-    worst_ci = min(conflict.estimated_ci_victim_db or 999.0, conflict.estimated_ci_aggressor_db or 999.0)
-    worst_degradation = max(
-        conflict.estimated_degradation_victim_db or 0.0,
-        conflict.estimated_degradation_aggressor_db or 0.0,
+    worst_margin = min(
+        conflict.estimated_margin_ab_db if conflict.estimated_margin_ab_db is not None else 999.0,
+        conflict.estimated_margin_ba_db if conflict.estimated_margin_ba_db is not None else 999.0,
     )
 
     if max_overlap <= 0.0 and conflict.conflict_type == "geometry":
         return False
-    if worst_degradation > MAX_ACCEPTED_DEGRADATION_DB:
+    if worst_margin < 0.0:
         return True
-    if max_overlap > 0.0 and worst_ci < MIN_HARD_BLOCKING_CI_DB:
-        return True
-    if conflict.conflict_type in {"cochannel", "adjacent"} and max_overlap > 0.0 and worst_degradation > 0.25:
+    if conflict.conflict_type in {"cochannel", "adjacent"} and max_overlap > 0.0:
         return True
     return False
 
@@ -1185,6 +1455,19 @@ def worst_blocking_ci(conflicts: list[ConflictAssessment]) -> float:
         return 999.0
     return min(
         min(conflict.estimated_ci_victim_db or 999.0, conflict.estimated_ci_aggressor_db or 999.0)
+        for conflict in blocking
+    )
+
+
+def worst_blocking_margin(conflicts: list[ConflictAssessment]) -> float:
+    blocking = [conflict for conflict in conflicts if is_blocking_conflict(conflict)]
+    if not blocking:
+        return 999.0
+    return min(
+        min(
+            conflict.estimated_margin_ab_db if conflict.estimated_margin_ab_db is not None else 999.0,
+            conflict.estimated_margin_ba_db if conflict.estimated_margin_ba_db is not None else 999.0,
+        )
         for conflict in blocking
     )
 
@@ -1265,18 +1548,16 @@ def determine_channel_status(conflicts: list[ConflictAssessment]) -> tuple[str, 
     worst_degradation_aggressor = max(conflict.estimated_degradation_aggressor_db or 0.0 for conflict in blocking_conflicts)
     worst_ci_victim = min(conflict.estimated_ci_victim_db or 999.0 for conflict in blocking_conflicts)
     worst_ci_aggressor = min(conflict.estimated_ci_aggressor_db or 999.0 for conflict in blocking_conflicts)
+    worst_margin_ab = min(conflict.estimated_margin_ab_db if conflict.estimated_margin_ab_db is not None else 999.0 for conflict in blocking_conflicts)
+    worst_margin_ba = min(conflict.estimated_margin_ba_db if conflict.estimated_margin_ba_db is not None else 999.0 for conflict in blocking_conflicts)
     cochannel_conflicts = [conflict for conflict in blocking_conflicts if conflict.conflict_type == "cochannel"]
     adjacent_conflicts = [conflict for conflict in blocking_conflicts if conflict.conflict_type == "adjacent"]
     red_conflicts = [conflict for conflict in blocking_conflicts if conflict.risk_level == "red"]
     amber_conflicts = [conflict for conflict in blocking_conflicts if conflict.risk_level == "amber"]
 
-    if worst_degradation_victim > MAX_ACCEPTED_DEGRADATION_DB or worst_degradation_aggressor > MAX_ACCEPTED_DEGRADATION_DB:
+    if worst_margin_ab < 0.0 or worst_margin_ba < 0.0:
         reasons.append(
-            f"degradacja > {MAX_ACCEPTED_DEGRADATION_DB:.1f} dB (victim={worst_degradation_victim:.2f}, aggressor={worst_degradation_aggressor:.2f})"
-        )
-    if worst_ci_victim < MIN_ACCEPTED_CI_DB or worst_ci_aggressor < MIN_ACCEPTED_CI_DB:
-        reasons.append(
-            f"CI poniżej progu ACCEPTED ({MIN_ACCEPTED_CI_DB:.1f} dB): victim={worst_ci_victim:.1f}, aggressor={worst_ci_aggressor:.1f}"
+            f"ujemny margines EMC: A→B={worst_margin_ab:.2f} dB, B→A={worst_margin_ba:.2f} dB"
         )
     if red_conflicts:
         reasons.append(f"{len(red_conflicts)} konflikt(y) RED w oknie kanałowym")
@@ -1289,6 +1570,25 @@ def determine_channel_status(conflicts: list[ConflictAssessment]) -> tuple[str, 
         return "ACCEPTED", []
 
     conditional_reasons: list[str] = []
+    conditional_margin_ab = min(
+        _emc_margin_at_thresholds(
+            conflict.estimated_ci_ab_db if conflict.details.get("estimated_ci_ab_db") is not None else (conflict.estimated_ci_victim_db or 999.0),
+            conflict.details.get("estimated_degradation_ab_db", conflict.estimated_degradation_victim_db or 0.0),
+            MIN_CONDITIONAL_CI_DB,
+            MAX_CONDITIONAL_DEGRADATION_DB,
+        )
+        for conflict in blocking_conflicts
+    )
+    conditional_margin_ba = min(
+        _emc_margin_at_thresholds(
+            conflict.details.get("estimated_ci_ba_db", conflict.estimated_ci_aggressor_db or 999.0),
+            conflict.details.get("estimated_degradation_ba_db", conflict.estimated_degradation_aggressor_db or 0.0),
+            MIN_CONDITIONAL_CI_DB,
+            MAX_CONDITIONAL_DEGRADATION_DB,
+        )
+        for conflict in blocking_conflicts
+    )
+
     if worst_degradation_victim <= MAX_CONDITIONAL_DEGRADATION_DB and worst_degradation_aggressor <= MAX_CONDITIONAL_DEGRADATION_DB:
         conditional_reasons.append(
             f"degradacja w zakresie warunkowym <= {MAX_CONDITIONAL_DEGRADATION_DB:.1f} dB"
@@ -1299,6 +1599,11 @@ def determine_channel_status(conflicts: list[ConflictAssessment]) -> tuple[str, 
         )
     if len(red_conflicts) == 0 and (amber_conflicts or cochannel_conflicts or adjacent_conflicts):
         conditional_reasons.append("brak konfliktów RED w oknie kanałowym")
+
+    if conditional_margin_ab >= 0.0 and conditional_margin_ba >= 0.0:
+        conditional_reasons.append(
+            f"margines warunkowy dodatni: A→B={conditional_margin_ab:.2f} dB, B→A={conditional_margin_ba:.2f} dB"
+        )
 
     if conditional_reasons:
         return "CONDITIONAL", reasons
@@ -1326,6 +1631,14 @@ def _directional_degradation(conflict: ConflictAssessment, direction: str) -> fl
     return 0.0 if value is None else value
 
 
+def _directional_margin(conflict: ConflictAssessment, direction: str) -> float:
+    details_value = conflict.details.get(f"estimated_margin_{direction}_db")
+    if details_value is not None:
+        return details_value
+    value = conflict.estimated_margin_ab_db if direction == "ab" else conflict.estimated_margin_ba_db
+    return 999.0 if value is None else value
+
+
 def _directional_total_degradation(conflicts: list[ConflictAssessment], direction: str) -> float:
     ratios_sum = 0.0
     for conflict in conflicts:
@@ -1338,16 +1651,13 @@ def _directional_total_degradation(conflicts: list[ConflictAssessment], directio
 
 def _directional_is_blocking(conflict: ConflictAssessment, direction: str) -> bool:
     overlap = _directional_overlap(conflict, direction)
-    ci = _directional_ci(conflict, direction)
-    degradation = _directional_degradation(conflict, direction)
+    margin = _directional_margin(conflict, direction)
 
     if overlap <= 0.0 and conflict.conflict_type == "geometry":
         return False
-    if degradation > MAX_ACCEPTED_DEGRADATION_DB:
+    if margin < 0.0:
         return True
-    if overlap > 0.0 and ci < MIN_HARD_BLOCKING_CI_DB:
-        return True
-    if conflict.conflict_type in {"cochannel", "adjacent"} and overlap > 0.0 and degradation > 0.25:
+    if conflict.conflict_type in {"cochannel", "adjacent"} and overlap > 0.0:
         return True
     return False
 
@@ -1399,10 +1709,15 @@ def determine_directional_status(
 
     worst_degradation = max((_directional_degradation(conflict, direction) for conflict in directional_conflicts), default=0.0)
     worst_ci = min((_directional_ci(conflict, direction) for conflict in directional_conflicts), default=999.0)
+    worst_margin = min((_directional_margin(conflict, direction) for conflict in directional_conflicts), default=999.0)
     red_conflicts = [conflict for conflict in directional_conflicts if conflict.risk_level == "red"]
     cochannel_conflicts = [conflict for conflict in directional_conflicts if conflict.conflict_type == "cochannel"]
     adjacent_conflicts = [conflict for conflict in directional_conflicts if conflict.conflict_type == "adjacent"]
 
+    if worst_margin < 0.0:
+        reasons.append(
+            f"ujemny margines EMC {direction.upper()} ({worst_margin:.2f} dB)"
+        )
     if total_degradation > MAX_ACCEPTED_DEGRADATION_DB:
         reasons.append(
             f"degradacja skumulowana {direction.upper()} > {MAX_ACCEPTED_DEGRADATION_DB:.1f} dB ({total_degradation:.2f})"
@@ -1426,9 +1741,22 @@ def determine_directional_status(
             f"bardzo bliskie linki E-band dla {direction.upper()}: {dense_very_close_count} <= {EBAND_DENSE_VERY_NEAR_KM:.1f} km"
         )
 
+    conditional_margin = min(
+        (
+            _emc_margin_at_thresholds(
+                _directional_ci(conflict, direction),
+                _directional_degradation(conflict, direction),
+                MIN_CONDITIONAL_CI_DB,
+                MAX_CONDITIONAL_DEGRADATION_DB,
+            )
+            for conflict in directional_conflicts
+        ),
+        default=999.0,
+    )
+
     if dense_close_count >= EBAND_DENSE_REJECT_COUNT or dense_very_close_count >= 2:
         return "REJECTED", reasons
-    if total_degradation <= MAX_CONDITIONAL_DEGRADATION_DB and worst_ci >= MIN_HARD_BLOCKING_CI_DB:
+    if conditional_margin >= 0.0 and total_degradation <= MAX_CONDITIONAL_DEGRADATION_DB and worst_ci >= MIN_HARD_BLOCKING_CI_DB:
         return "CONDITIONAL", reasons
     return "REJECTED", reasons
 
@@ -1449,6 +1777,8 @@ def build_explanation(
         f"ov_ab={metrics['overlap_ab_ratio']:.2f}; ov_ba={metrics['overlap_ba_ratio']:.2f}; "
         f"CI_ab={metrics['estimated_ci_ab_db']:.1f} dB; "
         f"CI_ba={metrics['estimated_ci_ba_db']:.1f} dB; "
+        f"M_ab={metrics['estimated_margin_ab_db']:.2f} dB; "
+        f"M_ba={metrics['estimated_margin_ba_db']:.2f} dB; "
         f"TD_ab={metrics['estimated_degradation_ab_db']:.2f} dB; "
         f"TD_ba={metrics['estimated_degradation_ba_db']:.2f} dB"
     )
@@ -1526,6 +1856,8 @@ def evaluate_pair_conflict(
         estimated_ci_aggressor_db=metrics["estimated_ci_aggressor_db"],
         estimated_degradation_victim_db=metrics["estimated_degradation_victim_db"],
         estimated_degradation_aggressor_db=metrics["estimated_degradation_aggressor_db"],
+        estimated_margin_ab_db=metrics["estimated_margin_ab_db"],
+        estimated_margin_ba_db=metrics["estimated_margin_ba_db"],
         decision_explanation=explanation,
         relationship=relationship,
         shared_site_count=shared_sites,
@@ -1552,6 +1884,8 @@ def evaluate_pair_conflict(
             "estimated_ci_ba_db": metrics["estimated_ci_ba_db"],
             "estimated_degradation_ab_db": metrics["estimated_degradation_ab_db"],
             "estimated_degradation_ba_db": metrics["estimated_degradation_ba_db"],
+            "estimated_margin_ab_db": metrics["estimated_margin_ab_db"],
+            "estimated_margin_ba_db": metrics["estimated_margin_ba_db"],
             "ab_incoming_case": metrics["ab_incoming_case"],
             "ab_outgoing_case": metrics["ab_outgoing_case"],
             "ba_incoming_case": metrics["ba_incoming_case"],
@@ -1682,66 +2016,28 @@ def analyze_wlr_request(
     conditional_assessments = [item for item in assessments if item.status == "CONDITIONAL"]
     rejected_assessments = [item for item in assessments if item.status == "REJECTED"]
     prioritize_orientation = should_prioritize_requested_orientation(request, assessments)
-
-    def orientation_rank(candidate: ChannelCandidate) -> int:
-        if not prioritize_orientation:
-            return 0
-        return orientation_preference_penalty(request, candidate)
-
-    accepted_assessments.sort(
-        key=lambda item: (
-            orientation_rank(item.candidate),
-            count_cochannel_conflicts(item.conflicts),
-            worst_blocking_degradation(item.conflicts),
-            requested_channel_distance(request, item.candidate),
-            polarization_preference_penalty(request, item.candidate),
-            item.score,
-            item.candidate.channel_ab,
-            item.candidate.channel_ba,
-            item.candidate.polarization,
-        )
+    candidate_frequency_records = build_candidate_frequency_records(request, assessments)
+    assessment_by_key = {
+        (item.candidate.channel_ab, item.candidate.channel_ba, item.candidate.polarization): item
+        for item in assessments
+    }
+    candidate_frequency_records.sort(
+        key=lambda record: _candidate_record_sort_key(request, record, prioritize_orientation)
     )
-    conditional_assessments.sort(
-        key=lambda item: (
-            0 if item.status_ab == "ACCEPTED" and item.status_ba == "ACCEPTED" else 1,
-            0 if item.status_ab == "ACCEPTED" or item.status_ba == "ACCEPTED" else 1,
-            orientation_rank(item.candidate),
-            count_cochannel_conflicts(item.conflicts),
-            item.red_conflicts,
-            worst_blocking_degradation(item.conflicts),
-            -worst_blocking_ci(item.conflicts),
-            requested_channel_distance(request, item.candidate),
-            polarization_preference_penalty(request, item.candidate),
-            item.score,
-            item.candidate.channel_ab,
-            item.candidate.channel_ba,
-            item.candidate.polarization,
-        )
-    )
-    rejected_assessments.sort(
-        key=lambda item: (
-            0 if item.status_ab == "ACCEPTED" or item.status_ba == "ACCEPTED" else 1,
-            orientation_rank(item.candidate),
-            count_cochannel_conflicts(item.conflicts),
-            item.red_conflicts,
-            worst_blocking_degradation(item.conflicts),
-            -worst_blocking_ci(item.conflicts),
-            requested_channel_distance(request, item.candidate),
-            polarization_preference_penalty(request, item.candidate),
-            item.score,
-            item.candidate.channel_ab,
-            item.candidate.channel_ba,
-            item.candidate.polarization,
-        )
-    )
-
-    ordered_assessments = accepted_assessments + conditional_assessments + rejected_assessments
+    ordered_assessments = [
+        assessment_by_key[(record.channel_ab, record.channel_ba, record.polarization)]
+        for record in candidate_frequency_records
+    ]
+    accepted_assessments = [item for item in ordered_assessments if item.status == "ACCEPTED"]
+    conditional_assessments = [item for item in ordered_assessments if item.status == "CONDITIONAL"]
+    rejected_assessments = [item for item in ordered_assessments if item.status == "REJECTED"]
 
     return AnalysisResult(
         request_operator_name=request_operator_name,
         bbox=bbox,
         candidate_links=candidate_links,
         channel_candidates=channel_candidates,
+        candidate_frequency_records=candidate_frequency_records,
         accepted_assessments=accepted_assessments,
         conditional_assessments=conditional_assessments,
         rejected_assessments=rejected_assessments,
