@@ -20,6 +20,14 @@ def fnum(value: str) -> float:
         return 0.0
 
 
+def pick_engine_value(row: dict[str, str], *keys: str) -> float:
+    for key in keys:
+        preferred = row.get(key, "")
+        if preferred not in {"", None}:
+            return fnum(preferred)
+    return 0.0
+
+
 def mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
@@ -74,7 +82,13 @@ def main() -> None:
         if row["engine_conflict_found"] == "True":
             found_rows += 1
             uke_value = fnum(row["uke_link_degradation_db"])
-            victim_gaps.append(uke_value - fnum(row["engine_victim_db"]))
+            case_aligned_value = pick_engine_value(
+                row,
+                "engine_station_aligned_db",
+                "engine_case_aligned_db",
+                "engine_victim_db",
+            )
+            victim_gaps.append(uke_value - case_aligned_value)
             aggressor_gaps.append(uke_value - fnum(row["engine_aggressor_db"]))
 
     permit_rows: list[dict[str, object]] = []
@@ -90,7 +104,13 @@ def main() -> None:
             if item["engine_conflict_found"] != "True":
                 continue
             uke_value = fnum(item["uke_link_degradation_db"])
-            victim_local.append(uke_value - fnum(item["engine_victim_db"]))
+            case_aligned_value = pick_engine_value(
+                item,
+                "engine_station_aligned_db",
+                "engine_case_aligned_db",
+                "engine_victim_db",
+            )
+            victim_local.append(uke_value - case_aligned_value)
             aggressor_local.append(uke_value - fnum(item["engine_aggressor_db"]))
 
         permit_rows.append(
@@ -102,7 +122,7 @@ def main() -> None:
                 "polarizations": ",".join(polarizations),
                 "channels": ",".join(channels),
                 "uke_max_db": round(max(fnum(item["uke_link_degradation_db"]) for item in items), 6),
-                "engine_victim_max_db": round(max(fnum(item["engine_victim_db"]) for item in items), 6),
+                "engine_victim_max_db": round(max(pick_engine_value(item, "engine_station_aligned_db", "engine_case_aligned_db", "engine_victim_db") for item in items), 6),
                 "engine_aggressor_max_db": round(max(fnum(item["engine_aggressor_db"]) for item in items), 6),
                 "victim_gap_bias_db": round(bias(victim_local), 6),
                 "victim_gap_mae_db": round(mae(victim_local), 6),
@@ -117,7 +137,7 @@ def main() -> None:
     for key, items in sorted(by_variant.items()):
         permit, direction, channel, polarization, section = key
         uke_value = max(fnum(item["uke_link_degradation_db"]) for item in items)
-        victim_value = max(fnum(item["engine_victim_db"]) for item in items)
+        victim_value = max(pick_engine_value(item, "engine_station_aligned_db", "engine_case_aligned_db", "engine_victim_db") for item in items)
         aggressor_value = max(fnum(item["engine_aggressor_db"]) for item in items)
         variant_rows.append(
             {

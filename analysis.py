@@ -1491,6 +1491,14 @@ def estimate_interference_metrics(
         "estimated_degradation_ba_db": degradation_ba_db,
         "estimated_margin_ab_db": margin_ab_db,
         "estimated_margin_ba_db": margin_ba_db,
+        "ab_incoming_direct": ab_incoming_direct,
+        "ab_incoming_cross": ab_incoming_cross,
+        "ab_outgoing_direct": ab_outgoing_direct,
+        "ab_outgoing_cross": ab_outgoing_cross,
+        "ba_incoming_direct": ba_incoming_direct,
+        "ba_incoming_cross": ba_incoming_cross,
+        "ba_outgoing_direct": ba_outgoing_direct,
+        "ba_outgoing_cross": ba_outgoing_cross,
         "ab_incoming_case": ab_incoming_case,
         "ab_outgoing_case": ab_outgoing_case,
         "ba_incoming_case": ba_incoming_case,
@@ -1920,6 +1928,15 @@ def build_explanation(
     )
 
 
+def _site_station_label(site: Any) -> str:
+    parts = [
+        getattr(site, "city", None),
+        getattr(site, "street", None),
+        getattr(site, "location_description", None),
+    ]
+    return " ".join(part.strip() for part in parts if isinstance(part, str) and part.strip())
+
+
 def evaluate_pair_conflict(
     request: WlrRequest,
     candidate: ChannelCandidate,
@@ -2001,6 +2018,8 @@ def evaluate_pair_conflict(
         details={
             "plan_symbol": existing_link.plan_symbol,
             "polarization": existing_link.polarization,
+            "site_a_station_label": _site_station_label(existing_link.site_a),
+            "site_b_station_label": _site_station_label(existing_link.site_b),
             "candidate_channel_ab": candidate.channel_ab,
             "candidate_channel_ba": candidate.channel_ba,
             "relationship": relationship,
@@ -2022,6 +2041,14 @@ def evaluate_pair_conflict(
             "estimated_degradation_ba_db": metrics["estimated_degradation_ba_db"],
             "estimated_margin_ab_db": metrics["estimated_margin_ab_db"],
             "estimated_margin_ba_db": metrics["estimated_margin_ba_db"],
+            "ab_incoming_direct": metrics["ab_incoming_direct"],
+            "ab_incoming_cross": metrics["ab_incoming_cross"],
+            "ab_outgoing_direct": metrics["ab_outgoing_direct"],
+            "ab_outgoing_cross": metrics["ab_outgoing_cross"],
+            "ba_incoming_direct": metrics["ba_incoming_direct"],
+            "ba_incoming_cross": metrics["ba_incoming_cross"],
+            "ba_outgoing_direct": metrics["ba_outgoing_direct"],
+            "ba_outgoing_cross": metrics["ba_outgoing_cross"],
             "ab_incoming_case": metrics["ab_incoming_case"],
             "ab_outgoing_case": metrics["ab_outgoing_case"],
             "ba_incoming_case": metrics["ba_incoming_case"],

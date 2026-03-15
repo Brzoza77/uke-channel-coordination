@@ -5,6 +5,7 @@ import csv
 import json
 import math
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -68,6 +69,64 @@ def match_engine_conflict(
     return matches[0]
 
 
+def _normalize_station_text(value: str) -> str:
+    text = unicodedata.normalize("NFKD", value or "")
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.lower()
+    text = "".join(ch if ch.isalnum() else " " for ch in text)
+    return " ".join(text.split())
+
+
+def _station_matches(row_station: str, site_station: str) -> bool:
+    row_norm = _normalize_station_text(row_station)
+    site_norm = _normalize_station_text(site_station)
+    if not row_norm or not site_norm:
+        return False
+    return row_norm in site_norm or site_norm in row_norm
+
+
+def _row_case_key(direction: str, section: str) -> str:
+    if direction == "A -> B":
+        return "ab_incoming_case" if section == "incoming" else "ab_outgoing_case"
+    return "ba_incoming_case" if section == "incoming" else "ba_outgoing_case"
+
+
+def _station_aware_case_key(row: dict[str, str], conflict: ConflictAssessment) -> str:
+    direction = row["direction"]
+    section = row["section"]
+    row_station = row.get("uke_link_station", "")
+    details = conflict.details or {}
+    site_a_label = details.get("site_a_station_label", "")
+    site_b_label = details.get("site_b_station_label", "")
+    station_is_a = _station_matches(row_station, site_a_label)
+    station_is_b = _station_matches(row_station, site_b_label)
+
+    if direction == "A -> B":
+        if section == "incoming":
+            if station_is_a:
+                return "ab_incoming_direct"
+            if station_is_b:
+                return "ab_incoming_cross"
+        else:
+            if station_is_b:
+                return "ab_outgoing_direct"
+            if station_is_a:
+                return "ab_outgoing_cross"
+    else:
+        if section == "incoming":
+            if station_is_b:
+                return "ba_incoming_direct"
+            if station_is_a:
+                return "ba_incoming_cross"
+        else:
+            if station_is_a:
+                return "ba_outgoing_direct"
+            if station_is_b:
+                return "ba_outgoing_cross"
+
+    return _row_case_key(direction, section)
+
+
 def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]) -> list[dict[str, str]]:
     grouped_conflicts: dict[tuple[str, str, str, str, str], list[ConflictAssessment]] = {}
     for row in rows:
@@ -99,6 +158,10 @@ def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]
         row["engine_conflict_link_id"] = engine_conflict.link_id if engine_conflict else ""
         row["engine_conflict_operator"] = engine_conflict.operator_name if engine_conflict else ""
         row["engine_conflict_permit"] = engine_conflict.permit_number if engine_conflict else ""
+        case_key = _row_case_key(row["direction"], row["section"])
+        station_case_key = _station_aware_case_key(row, engine_conflict) if engine_conflict else ""
+        row["engine_case_key"] = case_key if engine_conflict else ""
+        row["engine_station_case_key"] = station_case_key if engine_conflict else ""
         row["engine_victim_db"] = (
             f"{(engine_conflict.estimated_degradation_victim_db or 0.0):.6f}" if engine_conflict else ""
         )
@@ -116,6 +179,14 @@ def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]
         )
         row["engine_overlap_ab_ratio"] = f"{(engine_conflict.overlap_ab_ratio or 0.0):.6f}" if engine_conflict else ""
         row["engine_overlap_ba_ratio"] = f"{(engine_conflict.overlap_ba_ratio or 0.0):.6f}" if engine_conflict else ""
+        case_data = engine_conflict.details.get(case_key, {}) if engine_conflict else {}
+        station_case_data = engine_conflict.details.get(station_case_key, {}) if engine_conflict else {}
+        row["engine_case_aligned_db"] = f"{float(case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_case_aligned_ci_db"] = f"{float(case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_case_aligned_margin_db"] = f"{float(case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_station_aligned_db"] = f"{float(station_case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_station_aligned_ci_db"] = f"{float(station_case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_station_aligned_margin_db"] = f"{float(station_case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
 
     for row in rows:
         key = (
@@ -156,6 +227,14 @@ def main() -> None:
     extra_fieldnames = [
         "engine_margin_ab_db",
         "engine_margin_ba_db",
+        "engine_case_key",
+        "engine_case_aligned_db",
+        "engine_case_aligned_ci_db",
+        "engine_case_aligned_margin_db",
+        "engine_station_case_key",
+        "engine_station_aligned_db",
+        "engine_station_aligned_ci_db",
+        "engine_station_aligned_margin_db",
     ]
     for name in extra_fieldnames:
         if name not in fieldnames:
