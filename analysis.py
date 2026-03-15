@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-uke-adapter-ranking-2026-03-15"
+ENGINE_VERSION = "hcm-uke-candidate-margins-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -98,6 +98,7 @@ class PairwiseEmcResult:
     effective_freq_delta_mhz: Optional[float]
     risk_level: str
     explanation: str
+    is_blocking: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,8 +114,15 @@ class CandidateFrequencyRecord:
     status_ba: str
     requested_distance: int
     score: float
+    status_rank_value: int
+    uke_like_margnad_db: Optional[float]
+    uke_like_margodb_db: Optional[float]
     worst_margin_ab_db: Optional[float]
     worst_margin_ba_db: Optional[float]
+    worst_duplex_margin_db: Optional[float]
+    pairwise_red_count: int = 0
+    pairwise_cochannel_count: int = 0
+    pairwise_blocking_count: int = 0
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -191,6 +199,7 @@ def _min_optional(values: list[Optional[float]]) -> Optional[float]:
 def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEmcResult]:
     results: list[PairwiseEmcResult] = []
     for conflict in assessment.conflicts:
+        is_blocking = is_blocking_conflict(conflict)
         results.append(
             PairwiseEmcResult(
                 direction="A->B",
@@ -207,6 +216,7 @@ def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEm
                 effective_freq_delta_mhz=conflict.effective_freq_delta_mhz,
                 risk_level=conflict.risk_level,
                 explanation=conflict.decision_explanation,
+                is_blocking=is_blocking,
             )
         )
         results.append(
@@ -225,6 +235,7 @@ def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEm
                 effective_freq_delta_mhz=conflict.effective_freq_delta_mhz,
                 risk_level=conflict.risk_level,
                 explanation=conflict.decision_explanation,
+                is_blocking=is_blocking,
             )
         )
     return results
@@ -237,6 +248,11 @@ def build_candidate_frequency_record(
     pairwise_results = build_pairwise_emc_results(assessment)
     worst_margin_ab_db = _min_optional([result.margin_db for result in pairwise_results if result.direction == "A->B"])
     worst_margin_ba_db = _min_optional([result.margin_db for result in pairwise_results if result.direction == "B->A"])
+    worst_duplex_margin_db = _min_optional([worst_margin_ab_db, worst_margin_ba_db])
+    # UKE candidate rows appear directional; in the observed snapshot the row with kod_nadawczej=A
+    # carries receiver-side margin (MargOdb), while kod_nadawczej=B carries transmitter-side margin (MargNad).
+    uke_like_margnad_db = worst_margin_ba_db
+    uke_like_margodb_db = worst_margin_ab_db
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -249,10 +265,40 @@ def build_candidate_frequency_record(
         status_ba=assessment.status_ba,
         requested_distance=requested_channel_distance(request, assessment.candidate),
         score=assessment.score,
+        status_rank_value=status_rank(assessment.status),
+        uke_like_margnad_db=uke_like_margnad_db,
+        uke_like_margodb_db=uke_like_margodb_db,
         worst_margin_ab_db=worst_margin_ab_db,
         worst_margin_ba_db=worst_margin_ba_db,
+        worst_duplex_margin_db=worst_duplex_margin_db,
+        pairwise_red_count=sum(1 for result in pairwise_results if result.risk_level == "red"),
+        pairwise_cochannel_count=sum(1 for result in pairwise_results if result.conflict_type == "cochannel"),
+        pairwise_blocking_count=sum(1 for result in pairwise_results if result.is_blocking),
         pairwise_results=pairwise_results,
     )
+
+
+def build_uke_like_directional_candidate_rows(record: CandidateFrequencyRecord) -> list[dict[str, Any]]:
+    return [
+        {
+            "kod_nadawczej": "A",
+            "channel_number": record.channel_ba,
+            "frequency_ghz": record.freq_ba_ghz,
+            "polarization": record.polarization,
+            "status": record.status,
+            "margnad_db": None,
+            "margodb_db": record.uke_like_margodb_db,
+        },
+        {
+            "kod_nadawczej": "B",
+            "channel_number": record.channel_ab,
+            "frequency_ghz": record.freq_ab_ghz,
+            "polarization": record.polarization,
+            "status": record.status,
+            "margnad_db": record.uke_like_margnad_db,
+            "margodb_db": None,
+        },
+    ]
 
 
 def build_candidate_frequency_records(
@@ -263,16 +309,15 @@ def build_candidate_frequency_records(
 
 
 def _record_worst_margin(record: CandidateFrequencyRecord) -> float:
-    margins = [m for m in (record.worst_margin_ab_db, record.worst_margin_ba_db) if m is not None]
-    return min(margins) if margins else 999.0
+    return record.worst_duplex_margin_db if record.worst_duplex_margin_db is not None else 999.0
 
 
 def _record_pairwise_red_count(record: CandidateFrequencyRecord) -> int:
-    return sum(1 for result in record.pairwise_results if result.risk_level == "red")
+    return record.pairwise_red_count
 
 
 def _record_pairwise_cochannel_count(record: CandidateFrequencyRecord) -> int:
-    return sum(1 for result in record.pairwise_results if result.conflict_type == "cochannel")
+    return record.pairwise_cochannel_count
 
 
 def _record_status_priority(record: CandidateFrequencyRecord) -> tuple[int, int]:
@@ -297,11 +342,12 @@ def _candidate_record_sort_key(
     orientation = orientation_preference_penalty(request, candidate) if prioritize_orientation else 0
     both_ok, one_ok = _record_status_priority(record)
     return (
-        status_rank(record.status),
+        record.status_rank_value,
         both_ok,
         one_ok,
         orientation,
         -_record_worst_margin(record),
+        record.pairwise_blocking_count,
         _record_pairwise_cochannel_count(record),
         _record_pairwise_red_count(record),
         record.requested_distance,

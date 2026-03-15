@@ -35,7 +35,7 @@ from wlr import (
 )
 from uke import get_pairing_summary, get_plan_summary, get_source_summary
 
-from analysis import ENGINE_VERSION, analyze_wlr_request
+from analysis import ENGINE_VERSION, analyze_wlr_request, build_uke_like_directional_candidate_rows
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -258,8 +258,11 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                     "freq_ab_ghz": assessment.candidate.freq_ab_ghz,
                     "freq_ba_ghz": assessment.candidate.freq_ba_ghz,
                     "requested_distance": record.requested_distance if record else None,
+                    "uke_like_margnad_db": record.uke_like_margnad_db if record else None,
+                    "uke_like_margodb_db": record.uke_like_margodb_db if record else None,
                     "worst_margin_ab_db": margin_ab,
                     "worst_margin_ba_db": margin_ba,
+                    "worst_duplex_margin_db": record.worst_duplex_margin_db if record else None,
                 },
             )
         )
@@ -514,10 +517,14 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             "rejection_reasons": list(getattr(requested_assessment, "rejection_reasons", [])) if requested_assessment else [],
             "estimated_margin_ab_db": requested_record.worst_margin_ab_db if requested_record else None,
             "estimated_margin_ba_db": requested_record.worst_margin_ba_db if requested_record else None,
+            "uke_like_margnad_db": requested_record.uke_like_margnad_db if requested_record else None,
+            "uke_like_margodb_db": requested_record.uke_like_margodb_db if requested_record else None,
+            "worst_duplex_margin_db": requested_record.worst_duplex_margin_db if requested_record else None,
             "channel_ab": requested_assessment.candidate.channel_ab if requested_assessment else None,
             "channel_ba": requested_assessment.candidate.channel_ba if requested_assessment else None,
             "candidate_polarization": requested_assessment.candidate.polarization if requested_assessment else None,
             "requested_distance": requested_record.requested_distance if requested_record else None,
+            "uke_like_directional_rows": build_uke_like_directional_candidate_rows(requested_record) if requested_record else [],
             "top_conflicts_count": len(requested_assessment.conflicts) if requested_assessment else 0,
         } if requested_assessment else None,
         "requested_channel_top_conflicts": requested_channel_top_conflicts,
@@ -531,9 +538,14 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                 "polarization": record.polarization,
                 "score": record.score,
                 "requested_distance": record.requested_distance,
+                "uke_like_margnad_db": record.uke_like_margnad_db,
+                "uke_like_margodb_db": record.uke_like_margodb_db,
+                "worst_duplex_margin_db": record.worst_duplex_margin_db,
                 "pairwise_results_count": len(record.pairwise_results),
-                "cochannel_pairwise_count": sum(1 for result in record.pairwise_results if result.conflict_type == "cochannel"),
-                "red_pairwise_count": sum(1 for result in record.pairwise_results if result.risk_level == "red"),
+                "pairwise_blocking_count": record.pairwise_blocking_count,
+                "cochannel_pairwise_count": record.pairwise_cochannel_count,
+                "red_pairwise_count": record.pairwise_red_count,
+                "uke_like_directional_rows": build_uke_like_directional_candidate_rows(record),
                 "best_explanation": (
                     display_assessment_by_key[
                         (record.channel_ab, record.channel_ba, record.polarization)
