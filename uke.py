@@ -1463,12 +1463,11 @@ def _get_internal_duplex_links_window_cached(
 
 def get_internal_duplex_links_for_plan(plan: FrequencyPlan) -> list[DuplexLink]:
     freqs = [channel.center_freq_ghz for channel in plan.channels]
-    channel_width_mhz = infer_plan_channel_width_mhz(plan)
     if not freqs:
         return []
     return list(
         _get_internal_duplex_links_window_cached(
-            channel_width_mhz,
+            None,
             min(freqs),
             max(freqs),
         )
