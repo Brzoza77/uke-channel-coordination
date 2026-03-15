@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-uke-candidate-status-flags-2026-03-15"
+ENGINE_VERSION = "hcm-blocking-density-hardening-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -1498,12 +1498,22 @@ def is_blocking_conflict(conflict: ConflictAssessment) -> bool:
         conflict.estimated_margin_ab_db if conflict.estimated_margin_ab_db is not None else 999.0,
         conflict.estimated_margin_ba_db if conflict.estimated_margin_ba_db is not None else 999.0,
     )
+    worst_degradation = max(
+        conflict.estimated_degradation_victim_db or 0.0,
+        conflict.estimated_degradation_aggressor_db or 0.0,
+    )
+    worst_ci = min(
+        conflict.estimated_ci_victim_db if conflict.estimated_ci_victim_db is not None else 999.0,
+        conflict.estimated_ci_aggressor_db if conflict.estimated_ci_aggressor_db is not None else 999.0,
+    )
 
     if max_overlap <= 0.0 and conflict.conflict_type == "geometry":
         return False
     if worst_margin < 0.0:
         return True
-    if conflict.conflict_type in {"cochannel", "adjacent"} and max_overlap > 0.0:
+    if worst_degradation > MAX_ACCEPTED_DEGRADATION_DB:
+        return True
+    if max_overlap > 0.0 and worst_ci < MIN_HARD_BLOCKING_CI_DB:
         return True
     return False
 
@@ -1725,12 +1735,16 @@ def _directional_total_degradation(conflicts: list[ConflictAssessment], directio
 def _directional_is_blocking(conflict: ConflictAssessment, direction: str) -> bool:
     overlap = _directional_overlap(conflict, direction)
     margin = _directional_margin(conflict, direction)
+    degradation = _directional_degradation(conflict, direction)
+    ci = _directional_ci(conflict, direction)
 
     if overlap <= 0.0 and conflict.conflict_type == "geometry":
         return False
     if margin < 0.0:
         return True
-    if conflict.conflict_type in {"cochannel", "adjacent"} and overlap > 0.0:
+    if degradation > MAX_ACCEPTED_DEGRADATION_DB:
+        return True
+    if overlap > 0.0 and ci < MIN_HARD_BLOCKING_CI_DB:
         return True
     return False
 
@@ -1776,7 +1790,6 @@ def determine_directional_status(
     if (
         not directional_conflicts
         and total_degradation <= MAX_ACCEPTED_DEGRADATION_DB
-        and dense_close_count < EBAND_DENSE_CONDITIONAL_COUNT
     ):
         return "ACCEPTED", []
 
@@ -1805,11 +1818,11 @@ def determine_directional_status(
         reasons.append(f"{len(cochannel_conflicts)} konflikt(y) współkanałowych dla {direction.upper()}")
     elif adjacent_conflicts:
         reasons.append(f"{len(adjacent_conflicts)} konflikt(y) sąsiedniokanałowych dla {direction.upper()}")
-    if dense_close_count >= EBAND_DENSE_CONDITIONAL_COUNT:
+    if directional_conflicts and dense_close_count >= EBAND_DENSE_CONDITIONAL_COUNT:
         reasons.append(
             f"gęste środowisko E-band dla {direction.upper()}: {dense_close_count} bliskich linków <= {EBAND_DENSE_NEAR_KM:.1f} km i deltaf <= {((request.channel_width_mhz or 1.0) * EBAND_DENSE_DELTA_FACTOR):.1f} MHz"
         )
-    if dense_very_close_count >= 1:
+    if directional_conflicts and dense_very_close_count >= 1:
         reasons.append(
             f"bardzo bliskie linki E-band dla {direction.upper()}: {dense_very_close_count} <= {EBAND_DENSE_VERY_NEAR_KM:.1f} km"
         )
@@ -1827,7 +1840,7 @@ def determine_directional_status(
         default=999.0,
     )
 
-    if dense_close_count >= EBAND_DENSE_REJECT_COUNT or dense_very_close_count >= 2:
+    if directional_conflicts and (dense_close_count >= EBAND_DENSE_REJECT_COUNT or dense_very_close_count >= 2):
         return "REJECTED", reasons
     if conditional_margin >= 0.0 and total_degradation <= MAX_CONDITIONAL_DEGRADATION_DB and worst_ci >= MIN_HARD_BLOCKING_CI_DB:
         return "CONDITIONAL", reasons
