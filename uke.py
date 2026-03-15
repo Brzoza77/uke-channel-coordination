@@ -952,7 +952,142 @@ def load_plan_dataset_from_rtf(plan_dir: Path = PLAN_DIR) -> PlanDataset:
     )
 
 
+def normalize_plan_symbol_key(symbol: str) -> str:
+    text = clean_text(symbol) or ""
+    text = text.replace("/", "_")
+    text = re.sub(r"\s+", "", text)
+    return text
+
+
+def load_plan_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> PlanDataset:
+    with sqlite3.connect(sqlite_path) as con:
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        plan_rows = cur.execute(
+            """
+            SELECT
+                p.plan_id,
+                p.symbol_planu,
+                p.odstep_kanalowy,
+                p.min_odstep_nadawania_i_odbioru,
+                p.odstep_nadawania_i_odbioru,
+                p.wspolczynnik_podzakresu_dolnego,
+                p.wspolczynnik_podzakresu_gornego,
+                p.numer_pierwszego_kanalu,
+                p.numer_ostatniego_kanalu,
+                p.krok,
+                p.odstep_z1s,
+                p.odstep_z2s,
+                p.skok,
+                p.pochodzenie,
+                p.zalecenie,
+                p.rekomendacja,
+                p.zalacznik_wariant,
+                p.rodzaj_wiadomosci,
+                p.rodzaj_planu,
+                p.zalecany_wybor_kanalow,
+                p.uwagi
+            FROM lr_konsultacja_349__plan p
+            ORDER BY p.plan_id
+            """
+        ).fetchall()
+
+        plans: dict[str, FrequencyPlan] = {}
+        for row in plan_rows:
+            raw_symbol = clean_text(row["symbol_planu"])
+            if not raw_symbol:
+                continue
+
+            channel_rows = cur.execute(
+                """
+                SELECT
+                    numer_kana_u AS channel_number,
+                    MIN(czestotliwosc_przydzielona) AS freq_ghz
+                FROM lr_konsultacja_349__przeslo
+                WHERE numer_planu = ?
+                  AND numer_kana_u IS NOT NULL
+                  AND czestotliwosc_przydzielona IS NOT NULL
+                GROUP BY numer_kana_u
+                ORDER BY freq_ghz
+                """,
+                (row["plan_id"],),
+            ).fetchall()
+
+            channels: list[PlanChannel] = []
+            for channel_row in channel_rows:
+                channel_number = normalize_channel_number(channel_row["channel_number"])
+                if not channel_number:
+                    continue
+                digits = "".join(ch for ch in channel_number if ch.isdigit())
+                if not digits:
+                    continue
+                channel_index = int(digits)
+                is_prime = channel_number.endswith("'")
+                subband = "upper" if is_prime else "lower"
+                channels.append(
+                    PlanChannel(
+                        channel_number=channel_number,
+                        channel_index=channel_index,
+                        is_prime=is_prime,
+                        subband=subband,
+                        center_freq_ghz=float(channel_row["freq_ghz"]),
+                    )
+                )
+
+            if not channels:
+                continue
+
+            symbol = normalize_plan_symbol_key(raw_symbol)
+            if symbol in plans:
+                continue
+
+            plans[symbol] = FrequencyPlan(
+                symbol=symbol,
+                source_filename=sqlite_path.name,
+                source_format="sqlite",
+                range_from_ghz=min(channel.center_freq_ghz for channel in channels),
+                range_to_ghz=max(channel.center_freq_ghz for channel in channels),
+                channel_width_mhz=row["odstep_kanalowy"],
+                channel_spacing_mhz=row["odstep_kanalowy"],
+                band_center_mhz=None,
+                origin=clean_text(row["pochodzenie"]),
+                recommendation=clean_text(row["zalecenie"]),
+                recommendation_value=clean_text(row["rekomendacja"]),
+                annex_variant=clean_text(row["zalacznik_wariant"]),
+                plan_type=clean_text(row["rodzaj_planu"]),
+                message_type=clean_text(row["rodzaj_wiadomosci"]),
+                duplex_spacing_mhz=row["odstep_nadawania_i_odbioru"],
+                min_duplex_spacing_mhz=row["min_odstep_nadawania_i_odbioru"],
+                guard_band_lower_mhz=row["odstep_z1s"],
+                guard_band_upper_mhz=row["odstep_z2s"],
+                lower_subband_factor_mhz=row["wspolczynnik_podzakresu_dolnego"],
+                upper_subband_factor_mhz=row["wspolczynnik_podzakresu_gornego"],
+                first_channel=row["numer_pierwszego_kanalu"],
+                last_channel=row["numer_ostatniego_kanalu"],
+                step=row["krok"],
+                channels=channels,
+            )
+
+    return PlanDataset(
+        source_dir=str(sqlite_path),
+        loaded_files=[sqlite_path.name],
+        loaded_at=datetime.now(),
+        plans=plans,
+    )
+
+
 def get_plan_dataset(force_reload: bool = False) -> PlanDataset:
+    if internal_catalog_available():
+        signature = ((INTERNAL_SQLITE_PATH.name, INTERNAL_SQLITE_PATH.stat().st_mtime_ns, INTERNAL_SQLITE_PATH.stat().st_size),)
+        if not force_reload:
+            cached = _load_plans_cache_from_disk()
+            if cached is not None and cached.source_signature == signature:
+                return cached.dataset
+        dataset = load_plan_dataset_from_internal_sqlite(INTERNAL_SQLITE_PATH)
+        envelope = PlanCacheEnvelope(source_signature=signature, dataset=dataset)
+        _save_plans_cache_to_disk(envelope)
+        return dataset
+
     plan_files = discover_plan_files()
     signature = build_plan_source_signature(plan_files)
 

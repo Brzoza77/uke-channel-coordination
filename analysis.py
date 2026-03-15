@@ -18,6 +18,7 @@ from uke import (
     get_plan_dataset,
     get_internal_duplex_links_for_plan,
     internal_catalog_available,
+    normalize_plan_symbol_key,
 )
 from wlr import WlrRequest
 
@@ -717,6 +718,10 @@ def find_matching_plan(request: WlrRequest) -> Optional[FrequencyPlan]:
     plans = get_plan_dataset().plans
     if request.plan_symbol and request.plan_symbol in plans:
         return plans[request.plan_symbol]
+    if request.plan_symbol:
+        normalized = normalize_plan_symbol_key(request.plan_symbol)
+        if normalized in plans:
+            return plans[normalized]
 
     if request.channel_width_mhz is None:
         return None
