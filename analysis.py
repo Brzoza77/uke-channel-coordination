@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-uke-candidate-margins-2026-03-15"
+ENGINE_VERSION = "hcm-uke-candidate-status-flags-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -120,6 +120,8 @@ class CandidateFrequencyRecord:
     worst_margin_ab_db: Optional[float]
     worst_margin_ba_db: Optional[float]
     worst_duplex_margin_db: Optional[float]
+    uke_like_problem_flags: list[str] = field(default_factory=list)
+    inferred_uke_like_status: str = "REJECTED"
     pairwise_red_count: int = 0
     pairwise_cochannel_count: int = 0
     pairwise_blocking_count: int = 0
@@ -253,6 +255,29 @@ def build_candidate_frequency_record(
     # carries receiver-side margin (MargOdb), while kod_nadawczej=B carries transmitter-side margin (MargNad).
     uke_like_margnad_db = worst_margin_ba_db
     uke_like_margodb_db = worst_margin_ab_db
+    uke_like_problem_flags: list[str] = []
+    if worst_margin_ab_db is not None and worst_margin_ab_db < 0.0:
+        uke_like_problem_flags.append("negative_margin_ab")
+    if worst_margin_ba_db is not None and worst_margin_ba_db < 0.0:
+        uke_like_problem_flags.append("negative_margin_ba")
+    blocking_count = sum(1 for result in pairwise_results if result.is_blocking)
+    cochannel_count = sum(1 for result in pairwise_results if result.conflict_type == "cochannel")
+    red_count = sum(1 for result in pairwise_results if result.risk_level == "red")
+    if blocking_count:
+        uke_like_problem_flags.append("blocking_pairs_present")
+    if cochannel_count:
+        uke_like_problem_flags.append("cochannel_pairs_present")
+    if red_count:
+        uke_like_problem_flags.append("red_pairs_present")
+    if not uke_like_problem_flags:
+        uke_like_problem_flags.append("clean_candidate")
+
+    if worst_duplex_margin_db is None or (worst_duplex_margin_db >= 0.0 and blocking_count == 0):
+        inferred_uke_like_status = "ACCEPTED"
+    elif worst_duplex_margin_db >= -3.0 and red_count == 0:
+        inferred_uke_like_status = "CONDITIONAL"
+    else:
+        inferred_uke_like_status = "REJECTED"
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -268,12 +293,14 @@ def build_candidate_frequency_record(
         status_rank_value=status_rank(assessment.status),
         uke_like_margnad_db=uke_like_margnad_db,
         uke_like_margodb_db=uke_like_margodb_db,
+        uke_like_problem_flags=uke_like_problem_flags,
+        inferred_uke_like_status=inferred_uke_like_status,
         worst_margin_ab_db=worst_margin_ab_db,
         worst_margin_ba_db=worst_margin_ba_db,
         worst_duplex_margin_db=worst_duplex_margin_db,
-        pairwise_red_count=sum(1 for result in pairwise_results if result.risk_level == "red"),
-        pairwise_cochannel_count=sum(1 for result in pairwise_results if result.conflict_type == "cochannel"),
-        pairwise_blocking_count=sum(1 for result in pairwise_results if result.is_blocking),
+        pairwise_red_count=red_count,
+        pairwise_cochannel_count=cochannel_count,
+        pairwise_blocking_count=blocking_count,
         pairwise_results=pairwise_results,
     )
 
