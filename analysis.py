@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-nonoverlap-blocking-2026-03-15"
+ENGINE_VERSION = "hcm-shared-site-cross-isolation-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -42,6 +42,8 @@ EBAND_DENSE_VERY_NEAR_KM = 1.5
 EBAND_DENSE_DELTA_FACTOR = 0.5
 EBAND_DENSE_REJECT_COUNT = 6
 EBAND_DENSE_CONDITIONAL_COUNT = 3
+SHARED_SITE_CROSS_EXTRA_ISOLATION_DB = 20.0
+SHARED_SITE_CROSS_MIN_DELTA_MHZ = 5000.0
 ANNEX11_LOW_HEIGHT_LIMIT_M_ASL = 300.0
 ENABLE_ANNEX11_SEARCH_EXPANSION = False
 
@@ -1142,6 +1144,36 @@ def _worse_case(left: dict[str, float], right: dict[str, float]) -> dict[str, fl
     return left
 
 
+def _recompute_case_with_extra_isolation(case_data: dict[str, Any], extra_isolation_db: float) -> dict[str, Any]:
+    updated = dict(case_data)
+    updated["interference_dbm"] = case_data["interference_dbm"] - extra_isolation_db
+    updated["ci_db"] = case_data["wanted_signal_dbm"] - updated["interference_dbm"]
+    updated["degradation_db"] = threshold_degradation_db(
+        updated["interference_dbm"],
+        case_data["noise_dbm"],
+    )
+    updated["margin_db"] = _emc_margin_db(updated["ci_db"], updated["degradation_db"])
+    return updated
+
+
+def _apply_shared_site_cross_isolation(
+    relationship: str,
+    case_data: dict[str, Any],
+) -> dict[str, Any]:
+    if relationship != "shared_site":
+        return case_data
+    emc_input = case_data.get("emc_input")
+    if emc_input is None:
+        return case_data
+    if not emc_input.direction.endswith("_cross"):
+        return case_data
+    if emc_input.overlap_ratio > 0.0:
+        return case_data
+    if emc_input.freq_delta_mhz < SHARED_SITE_CROSS_MIN_DELTA_MHZ:
+        return case_data
+    return _recompute_case_with_extra_isolation(case_data, SHARED_SITE_CROSS_EXTRA_ISOLATION_DB)
+
+
 def _empirical_filter_discrimination_db(freq_delta_mhz: float, bw_mhz: float, overlap_ratio: float) -> float:
     if overlap_ratio >= 0.95 or freq_delta_mhz <= 1e-6:
         return 0.0
@@ -1373,6 +1405,11 @@ def estimate_interference_metrics(
     ab_outgoing_case = _worse_case(ab_outgoing_direct, ab_outgoing_cross)
     ba_incoming_case = _worse_case(ba_incoming_direct, ba_incoming_cross)
     ba_outgoing_case = _worse_case(ba_outgoing_direct, ba_outgoing_cross)
+
+    ab_incoming_case = _apply_shared_site_cross_isolation(relationship, ab_incoming_case)
+    ab_outgoing_case = _apply_shared_site_cross_isolation(relationship, ab_outgoing_case)
+    ba_incoming_case = _apply_shared_site_cross_isolation(relationship, ba_incoming_case)
+    ba_outgoing_case = _apply_shared_site_cross_isolation(relationship, ba_outgoing_case)
 
     dominant_case = max(
         (ab_incoming_case, ab_outgoing_case, ba_incoming_case, ba_outgoing_case),
