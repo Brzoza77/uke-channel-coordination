@@ -1,0 +1,1142 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Optional, Callable
+import os
+import re
+import pickle
+
+import subprocess
+
+from openpyxl import load_workbook
+
+
+BASE_DIR = Path(__file__).resolve().parent
+CACHE_DIR = BASE_DIR / ".cache"
+CACHE_DIR.mkdir(exist_ok=True)
+CACHE_FILE = CACHE_DIR / "permissions_cache.pkl"
+
+PLAN_DIR = BASE_DIR / "plany"
+PLANS_CACHE_FILE = CACHE_DIR / "plans_cache.pkl"
+
+
+HEADER_ALIASES = {
+    "L.p.": "lp",
+    "Dl_geo_Tx": "dl_geo_tx",
+    "Sz_geo_Tx": "sz_geo_tx",
+    "H_t_Tx [m npm]": "terrain_tx_m_asl",
+    "Miejscowość Tx": "city_tx",
+    "Województwo Tx": "province_tx",
+    "Ulica Tx": "street_tx",
+    "Opis położenia Tx": "location_desc_tx",
+    "Dl_geo_Rx": "dl_geo_rx",
+    "Sz_geo_Rx": "sz_geo_rx",
+    "H_t_Rx [m npm]": "terrain_rx_m_asl",
+    "Miejscowość Rx": "city_rx",
+    "Województwo Rx": "province_rx",
+    "Ulica Rx": "street_rx",
+    "Opis położenia Rx": "location_desc_rx",
+    "f [GHz]": "freq_ghz",
+    "Nr_kan": "channel_number",
+    "Symbol_planu": "plan_symbol",
+    "Szer_kan [MHz]": "channel_width_mhz",
+    "Polaryzacja": "polarization",
+    "Rodz_modu-lacji": "modulation",
+    "Przepływność [Mb/s]": "bitrate_mbps",
+    "EIRP [dBm]": "eirp_dbm",
+    "Tłum_ant_odb_Rx [dB]": "rx_antenna_attenuation_db",
+    "Typ_nad": "radio_type",
+    "Prod_nad": "radio_vendor",
+    "Liczba_szum_Rx [dB]": "rx_noise_figure_db",
+    "Tłum_ATPC [dB]": "atpc_attenuation_db",
+    "Typ_ant_Tx": "antenna_type_tx",
+    "Prod_ant_Tx": "antenna_vendor_tx",
+    "Zysk_ant_Tx [dBi]": "antenna_gain_tx_dbi",
+    "H_ant_Tx [m npt]": "antenna_height_tx_m_agl",
+    "Typ_ant_Rx": "antenna_type_rx",
+    "Prod_ant_Rx": "antenna_vendor_rx",
+    "Zysk_ant_Rx [dBi]": "antenna_gain_rx_dbi",
+    "H_ant_Rx [m npt]": "antenna_height_rx_m_agl",
+    "Operator": "operator_name",
+    "Nr_pozw/dec": "permit_number",
+    "Rodz_dec": "decision_type",
+    "Data_wydania": "issue_date",
+    "Data_ważn_pozw/dec": "valid_until",
+}
+
+
+@dataclass(frozen=True)
+class GeoPoint:
+    lon_deg: float
+    lat_deg: float
+
+
+@dataclass(frozen=True)
+class Site:
+    role: str
+    point: GeoPoint
+    terrain_m_asl: Optional[float]
+    antenna_height_m_agl: Optional[float]
+    city: Optional[str]
+    province: Optional[str]
+    street: Optional[str]
+    location_description: Optional[str]
+    antenna_type: Optional[str]
+    antenna_vendor: Optional[str]
+    antenna_gain_dbi: Optional[float]
+
+    @property
+    def antenna_center_m_asl(self) -> Optional[float]:
+        if self.terrain_m_asl is None or self.antenna_height_m_agl is None:
+            return None
+        return self.terrain_m_asl + self.antenna_height_m_agl
+
+
+@dataclass(frozen=True)
+class RadioEmission:
+    center_freq_ghz: float
+    center_freq_mhz: float
+    channel_number: str
+    plan_symbol: Optional[str]
+    channel_width_mhz: Optional[float]
+    polarization: Optional[str]
+    modulation: Optional[str]
+    bitrate_mbps: Optional[float]
+    eirp_dbm: Optional[float]
+    rx_antenna_attenuation_db: Optional[float]
+    radio_type: Optional[str]
+    radio_vendor: Optional[str]
+    rx_noise_figure_db: Optional[float]
+    atpc_attenuation_db: Optional[float]
+
+    @property
+    def lower_edge_mhz(self) -> Optional[float]:
+        if self.channel_width_mhz is None:
+            return None
+        return self.center_freq_mhz - self.channel_width_mhz / 2.0
+
+    @property
+    def upper_edge_mhz(self) -> Optional[float]:
+        if self.channel_width_mhz is None:
+            return None
+        return self.center_freq_mhz + self.channel_width_mhz / 2.0
+
+
+
+@dataclass(frozen=True)
+class PermitRecord:
+    row_number: int
+    operator_name: Optional[str]
+    permit_number: Optional[str]
+    decision_type: Optional[str]
+    issue_date: Optional[date]
+    valid_until: Optional[date]
+    tx_site: Site
+    rx_site: Site
+    emission: RadioEmission
+    source_filename: str
+    source_sheet: str
+
+    @property
+    def stable_id(self) -> str:
+        permit = self.permit_number or "no-permit"
+        chan = self.emission.channel_number or "no-chan"
+        freq = f"{self.emission.center_freq_mhz:.3f}"
+        return f"{permit}:{chan}:{freq}:{self.row_number}"
+
+
+@dataclass(frozen=True)
+class DuplexLink:
+    link_id: str
+    operator_name: Optional[str]
+    permit_number: Optional[str]
+    decision_type: Optional[str]
+    issue_date: Optional[date]
+    valid_until: Optional[date]
+    site_a: Site
+    site_b: Site
+    emission_ab: RadioEmission
+    emission_ba: RadioEmission
+    source_filename: str
+    source_sheet: str
+
+    @property
+    def band_name(self) -> str:
+        return f"{self.emission_ab.center_freq_ghz:.6f}/{self.emission_ba.center_freq_ghz:.6f} GHz"
+
+    @property
+    def plan_symbol(self) -> Optional[str]:
+        return self.emission_ab.plan_symbol or self.emission_ba.plan_symbol
+
+    @property
+    def polarization(self) -> Optional[str]:
+        return self.emission_ab.polarization or self.emission_ba.polarization
+
+
+
+@dataclass(frozen=True)
+class PlanChannel:
+    channel_number: str
+    channel_index: int
+    is_prime: bool
+    subband: str
+    center_freq_ghz: float
+
+
+@dataclass(frozen=True)
+class FrequencyPlan:
+    symbol: str
+    source_filename: str
+    source_format: str
+    range_from_ghz: Optional[float]
+    range_to_ghz: Optional[float]
+    channel_width_mhz: Optional[float]
+    channel_spacing_mhz: Optional[float]
+    band_center_mhz: Optional[float]
+    origin: Optional[str]
+    recommendation: Optional[str]
+    recommendation_value: Optional[str]
+    annex_variant: Optional[str]
+    plan_type: Optional[str]
+    message_type: Optional[str]
+    duplex_spacing_mhz: Optional[float]
+    min_duplex_spacing_mhz: Optional[float]
+    guard_band_lower_mhz: Optional[float]
+    guard_band_upper_mhz: Optional[float]
+    lower_subband_factor_mhz: Optional[float]
+    upper_subband_factor_mhz: Optional[float]
+    first_channel: Optional[int]
+    last_channel: Optional[int]
+    step: Optional[int]
+    channels: list[PlanChannel]
+
+    @property
+    def is_tdd(self) -> bool:
+        return self.duplex_spacing_mhz in (None, 0)
+
+    @property
+    def has_prime_channels(self) -> bool:
+        return any(channel.is_prime for channel in self.channels)
+
+
+@dataclass(frozen=True)
+class PlanDataset:
+    source_dir: str
+    loaded_files: list[str]
+    loaded_at: datetime
+    plans: dict[str, FrequencyPlan]
+
+
+@dataclass(frozen=True)
+class PlanCacheEnvelope:
+    source_signature: tuple[tuple[str, int, int], ...]
+    dataset: PlanDataset
+
+
+@dataclass(frozen=True)
+class SourceFileInfo:
+    filename: str
+    full_path: str
+    file_size_bytes: int
+    modified_at: datetime
+    sheet_name: str
+    rows_count: int
+
+
+
+@dataclass(frozen=True)
+class PermissionDataset:
+    source: SourceFileInfo
+    records: list[PermitRecord]
+
+
+@dataclass(frozen=True)
+class PairingReport:
+    total_records: int
+    duplex_links: list[DuplexLink]
+    orphan_records: list[PermitRecord]
+
+    @property
+    def paired_records_count(self) -> int:
+        return len(self.duplex_links) * 2
+
+    @property
+    def orphan_records_count(self) -> int:
+        return len(self.orphan_records)
+
+
+@dataclass(frozen=True)
+class CacheEnvelope:
+    source_path: str
+    source_mtime_ns: int
+    source_size: int
+    dataset: PermissionDataset
+
+
+_COORD_RE = re.compile(
+    r"^\s*(\d+)([NSEW])([0-9]{1,2})'(\d{1,2}(?:[\.,]\d+)?)''\s*$"
+)
+
+
+def discover_latest_xlsx(base_dir: Path = BASE_DIR) -> Path:
+    candidates = sorted(
+        [p for p in base_dir.glob("*.xlsx") if not p.name.startswith("~$")],
+        key=lambda p: (p.stat().st_mtime_ns, p.name),
+        reverse=True,
+    )
+    if not candidates:
+        raise FileNotFoundError(f"Brak pliku .xlsx w katalogu {base_dir}")
+    return candidates[0]
+
+
+def parse_uke_coord(value: Any) -> float:
+    if value is None:
+        raise ValueError("Pusta współrzędna")
+
+    text = str(value).strip()
+    match = _COORD_RE.match(text)
+    if not match:
+        raise ValueError(f"Nieznany format współrzędnej UKE: {text!r}")
+
+    deg, hemi, minutes, seconds = match.groups()
+    deg_f = float(deg)
+    minutes_f = float(minutes)
+    seconds_f = float(seconds.replace(",", "."))
+
+    decimal = deg_f + minutes_f / 60.0 + seconds_f / 3600.0
+    if hemi in {"W", "S"}:
+        decimal *= -1.0
+    return decimal
+
+
+def clean_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def parse_optional_float_strict(value: Any) -> Optional[float]:
+    text = clean_text(value)
+    if text is None:
+        return None
+    text = text.replace(" ", "").replace(",", ".")
+    return float(text)
+
+
+def parse_float(value: Any) -> Optional[float]:
+    return parse_optional_float_strict(value)
+
+
+def parse_int(value: Any) -> int:
+    text = clean_text(value)
+    if text is None:
+        raise ValueError("Brak wartości całkowitej")
+    return int(float(text.replace(",", ".")))
+
+
+def parse_bitrate_mbps(value: Any) -> Optional[float]:
+    text = clean_text(value)
+    if text is None:
+        return None
+
+    normalized = text.replace(" ", "").replace(",", ".").lower()
+    normalized = normalized.replace("mb/s", "").replace("mbit/s", "").replace("mbps", "")
+    normalized = normalized.replace("max", "")
+
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)x([0-9]+(?:\.[0-9]+)?)", normalized)
+    if match:
+        left = float(match.group(1))
+        right = float(match.group(2))
+        return left * right
+
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)", normalized)
+    if match:
+        return float(match.group(1))
+
+    raise ValueError(f"Nieznany format przepływności: {text!r}")
+
+
+def parse_date(value: Any) -> Optional[date]:
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.date()
+
+    if isinstance(value, date):
+        return value
+
+    text = clean_text(value)
+    if text is None:
+        return None
+
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+
+    raise ValueError(f"Nieznany format daty: {text!r}")
+
+
+
+def normalize_row(headers: list[Any], row: tuple[Any, ...]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for header, value in zip(headers, row):
+        if header is None:
+            continue
+        alias = HEADER_ALIASES.get(header)
+        if alias is None:
+            continue
+        normalized[alias] = value
+    return normalized
+
+
+def normalize_channel_number(value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    return value.replace(" ", "").replace("’", "'").strip()
+
+
+def approx_equal(a: Optional[float], b: Optional[float], tol: float = 1e-6) -> bool:
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= tol
+
+
+def site_pair_key(site_left: Site, site_right: Site) -> tuple[float, float, float, float]:
+    coords = sorted(
+        [
+            (round(site_left.point.lon_deg, 7), round(site_left.point.lat_deg, 7)),
+            (round(site_right.point.lon_deg, 7), round(site_right.point.lat_deg, 7)),
+        ]
+    )
+    return coords[0][0], coords[0][1], coords[1][0], coords[1][1]
+
+
+def build_pairing_key(record: PermitRecord) -> tuple[Any, ...]:
+    return (
+        record.permit_number or "",
+        record.operator_name or "",
+        site_pair_key(record.tx_site, record.rx_site),
+        round(record.emission.channel_width_mhz or 0.0, 6),
+        record.emission.plan_symbol or "",
+        record.emission.polarization or "",
+        record.emission.radio_type or "",
+        record.emission.radio_vendor or "",
+    )
+
+
+def records_are_reverse_match(left: PermitRecord, right: PermitRecord) -> bool:
+    return (
+        approx_equal(left.tx_site.point.lon_deg, right.rx_site.point.lon_deg)
+        and approx_equal(left.tx_site.point.lat_deg, right.rx_site.point.lat_deg)
+        and approx_equal(left.rx_site.point.lon_deg, right.tx_site.point.lon_deg)
+        and approx_equal(left.rx_site.point.lat_deg, right.tx_site.point.lat_deg)
+    )
+
+
+def choose_best_reverse_match(base: PermitRecord, candidates: list[PermitRecord]) -> Optional[PermitRecord]:
+    best: Optional[PermitRecord] = None
+    best_score: Optional[tuple[int, int, int, int, float]] = None
+
+    for candidate in candidates:
+        if candidate.row_number == base.row_number:
+            continue
+        if not records_are_reverse_match(base, candidate):
+            continue
+
+        same_channel = int(
+            normalize_channel_number(base.emission.channel_number).rstrip("'")
+            == normalize_channel_number(candidate.emission.channel_number).rstrip("'")
+        )
+        apostrophe_pair = int(
+            normalize_channel_number(base.emission.channel_number)
+            != normalize_channel_number(candidate.emission.channel_number)
+            and normalize_channel_number(base.emission.channel_number).rstrip("'")
+            == normalize_channel_number(candidate.emission.channel_number).rstrip("'")
+        )
+        same_modulation = int((base.emission.modulation or "") == (candidate.emission.modulation or ""))
+        same_bitrate = int(approx_equal(base.emission.bitrate_mbps, candidate.emission.bitrate_mbps, tol=1e-3))
+        freq_delta = abs(base.emission.center_freq_mhz - candidate.emission.center_freq_mhz)
+
+        score = (same_channel, apostrophe_pair, same_modulation, same_bitrate, -freq_delta)
+        if best_score is None or score > best_score:
+            best = candidate
+            best_score = score
+
+    return best
+
+
+def make_duplex_link(left: PermitRecord, right: PermitRecord) -> DuplexLink:
+    left_key = (left.tx_site.point.lon_deg, left.tx_site.point.lat_deg, left.rx_site.point.lon_deg, left.rx_site.point.lat_deg)
+    right_key = (right.tx_site.point.lon_deg, right.tx_site.point.lat_deg, right.rx_site.point.lon_deg, right.rx_site.point.lat_deg)
+
+    if left_key <= right_key:
+        record_ab = left
+        record_ba = right
+    else:
+        record_ab = right
+        record_ba = left
+
+    link_id = (
+        f"{record_ab.permit_number or 'no-permit'}:"
+        f"{record_ab.row_number}-"
+        f"{record_ba.row_number}"
+    )
+
+    return DuplexLink(
+        link_id=link_id,
+        operator_name=record_ab.operator_name or record_ba.operator_name,
+        permit_number=record_ab.permit_number or record_ba.permit_number,
+        decision_type=record_ab.decision_type or record_ba.decision_type,
+        issue_date=record_ab.issue_date or record_ba.issue_date,
+        valid_until=record_ab.valid_until or record_ba.valid_until,
+        site_a=record_ab.tx_site,
+        site_b=record_ab.rx_site,
+        emission_ab=record_ab.emission,
+        emission_ba=record_ba.emission,
+        source_filename=record_ab.source_filename,
+        source_sheet=record_ab.source_sheet,
+    )
+
+
+def pair_duplex_links(records: list[PermitRecord]) -> PairingReport:
+    buckets: dict[tuple[Any, ...], list[PermitRecord]] = {}
+    for record in records:
+        buckets.setdefault(build_pairing_key(record), []).append(record)
+
+    used_row_numbers: set[int] = set()
+    duplex_links: list[DuplexLink] = []
+    orphan_records: list[PermitRecord] = []
+
+    for bucket_records in buckets.values():
+        bucket_records_sorted = sorted(bucket_records, key=lambda rec: rec.row_number)
+        for record in bucket_records_sorted:
+            if record.row_number in used_row_numbers:
+                continue
+
+            candidates = [c for c in bucket_records_sorted if c.row_number not in used_row_numbers]
+            match = choose_best_reverse_match(record, candidates)
+            if match is None:
+                orphan_records.append(record)
+                used_row_numbers.add(record.row_number)
+                continue
+
+            duplex_links.append(make_duplex_link(record, match))
+            used_row_numbers.add(record.row_number)
+            used_row_numbers.add(match.row_number)
+
+    duplex_links.sort(key=lambda link: (link.permit_number or "", link.link_id))
+    orphan_records.sort(key=lambda record: record.row_number)
+
+    return PairingReport(
+        total_records=len(records),
+        duplex_links=duplex_links,
+        orphan_records=orphan_records,
+    )
+
+
+# === Frequency Plan Handling ===
+
+
+def discover_plan_files(plan_dir: Path = PLAN_DIR) -> list[Path]:
+    if not plan_dir.exists():
+        return []
+    return sorted(
+        [path for path in plan_dir.glob("*.rtf") if path.is_file()],
+        key=lambda path: path.name.lower(),
+    )
+
+
+def build_plan_source_signature(plan_files: list[Path]) -> tuple[tuple[str, int, int], ...]:
+    return tuple(
+        (path.name, path.stat().st_mtime_ns, path.stat().st_size)
+        for path in plan_files
+    )
+
+
+def _load_plans_cache_from_disk() -> Optional[PlanCacheEnvelope]:
+    if not PLANS_CACHE_FILE.exists():
+        return None
+    with PLANS_CACHE_FILE.open("rb") as fh:
+        return pickle.load(fh)
+
+
+def _save_plans_cache_to_disk(envelope: PlanCacheEnvelope) -> None:
+    with PLANS_CACHE_FILE.open("wb") as fh:
+        pickle.dump(envelope, fh)
+
+
+def parse_decimal_token(value: str) -> float:
+    return float(value.replace(" ", "").replace(",", "."))
+
+
+def normalize_plan_label(value: str) -> str:
+    text = value.lower().strip()
+    text = text.replace("/", " ")
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def derive_plan_symbol_from_filename(path: Path) -> str:
+    symbol = path.stem.strip()
+    if not symbol:
+        raise ValueError(f"Pusta nazwa pliku planu: {path.name}")
+    return symbol
+
+
+def convert_rtf_to_text(path: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["unrtf", "--text", str(path)],
+            capture_output=True,
+            check=True,
+        )
+        return result.stdout.decode("utf-8", errors="ignore")
+    except FileNotFoundError:
+        return fallback_rtf_to_text(path)
+
+
+def cleanup_plan_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = " ".join(raw_line.strip().split())
+        if not line:
+            continue
+        if line.startswith("###"):
+            continue
+        if line.startswith("AUTHOR:"):
+            continue
+        if line.startswith("-----------------"):
+            continue
+        if re.match(r"^Strona\s+\d+\s+z\s+\d+$", line):
+            continue
+        if re.match(r"^\d{1,2}\s+[A-Za-zżźćńółęąśŻŹĆĄŚĘŁÓŃ]+\s+\d{4}$", line):
+            continue
+        lines.append(line)
+    return lines
+
+
+def find_plan_symbol_in_lines(lines: list[str], path: Path) -> str:
+    for index, line in enumerate(lines):
+        if normalize_plan_label(line) == "plan" and index + 1 < len(lines):
+            candidate = lines[index + 1].strip()
+            if candidate:
+                return candidate
+
+    filename_symbol = derive_plan_symbol_from_filename(path)
+    normalized_filename_symbol = normalize_plan_label(filename_symbol)
+
+    for line in lines:
+        normalized_line = normalize_plan_label(line)
+        if normalized_line == normalized_filename_symbol:
+            return filename_symbol
+        if normalized_filename_symbol and normalized_filename_symbol in normalized_line:
+            return filename_symbol
+
+    return filename_symbol
+
+
+def fallback_rtf_to_text(path: Path) -> str:
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    text = raw
+    text = text.replace("\\par", "\n")
+    text = text.replace("\\line", "\n")
+    text = text.replace("\r", "")
+    text = re.sub(r"\\'[0-9a-fA-F]{2}", " ", text)
+    text = re.sub(r"\\[a-zA-Z]+-?\d* ?", " ", text)
+    text = text.replace("{", " ").replace("}", " ")
+    text = re.sub(r"[^\S\n]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text.strip()
+def extract_inline_channel_pairs(lines: list[str]) -> list[PlanChannel]:
+    channels: list[PlanChannel] = []
+    seen: set[tuple[str, float]] = set()
+
+    for line in lines:
+        matches = re.findall(r"(\d+'?)\s+(\d+(?:[\.,]\d+)?)", line)
+        for channel_token, freq_token in matches:
+            center_freq_ghz = parse_decimal_token(freq_token)
+            key = (channel_token, center_freq_ghz)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            is_prime = channel_token.endswith("'")
+            channel_index = int(channel_token.rstrip("'"))
+            subband = "upper" if is_prime else "lower"
+            channels.append(
+                PlanChannel(
+                    channel_number=channel_token,
+                    channel_index=channel_index,
+                    is_prime=is_prime,
+                    subband=subband,
+                    center_freq_ghz=center_freq_ghz,
+                )
+            )
+
+    if channels and not any(channel.is_prime for channel in channels):
+        channels = [
+            PlanChannel(
+                channel_number=channel.channel_number,
+                channel_index=channel.channel_index,
+                is_prime=False,
+                subband="single",
+                center_freq_ghz=channel.center_freq_ghz,
+            )
+            for channel in channels
+        ]
+
+    return channels
+
+
+def get_value_after_label(lines: list[str], label_prefixes: list[str]) -> Optional[str]:
+    normalized_prefixes = [normalize_plan_label(prefix) for prefix in label_prefixes]
+    units = {"ghz", "mhz"}
+
+    for index, line in enumerate(lines):
+        normalized_line = normalize_plan_label(line)
+        if any(normalized_line.startswith(prefix) for prefix in normalized_prefixes):
+            for candidate in lines[index + 1:]:
+                normalized_candidate = normalize_plan_label(candidate)
+                if not normalized_candidate:
+                    continue
+                if normalized_candidate in units:
+                    continue
+                if normalized_candidate.startswith("numer kan"):
+                    return None
+                return candidate
+    return None
+
+
+def get_all_values_after_label(lines: list[str], label_prefixes: list[str]) -> list[str]:
+    normalized_prefixes = [normalize_plan_label(prefix) for prefix in label_prefixes]
+    units = {"ghz", "mhz"}
+    values: list[str] = []
+
+    for index, line in enumerate(lines):
+        normalized_line = normalize_plan_label(line)
+        if any(normalized_line.startswith(prefix) for prefix in normalized_prefixes):
+            for candidate in lines[index + 1:]:
+                normalized_candidate = normalize_plan_label(candidate)
+                if not normalized_candidate:
+                    continue
+                if normalized_candidate in units:
+                    continue
+                if normalized_candidate.startswith("numer kan"):
+                    break
+                values.append(candidate)
+                break
+
+    return values
+
+
+def parse_optional_int_token(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    return int(parse_decimal_token(value))
+
+
+def parse_optional_float_token(value: Optional[str]) -> Optional[float]:
+    if value is None:
+        return None
+    return parse_decimal_token(value)
+
+
+def first_matching_value(
+    lines: list[str],
+    prefixes: list[str],
+    parser: Callable[[str], Any],
+) -> Any:
+    for value in get_all_values_after_label(lines, prefixes):
+        try:
+            return parser(value)
+        except Exception:
+            continue
+    return None
+
+
+def parse_plan_channels(lines: list[str]) -> list[PlanChannel]:
+    table_start_index: Optional[int] = None
+    for index, line in enumerate(lines):
+        normalized_line = normalize_plan_label(line)
+        if normalized_line.startswith("numer kan") and "cz" in normalized_line:
+            table_start_index = index + 1
+            break
+
+    channels: list[PlanChannel] = []
+
+    if table_start_index is not None:
+        tokens = lines[table_start_index:]
+        i = 0
+        while i < len(tokens) - 1:
+            channel_token = tokens[i].strip()
+            freq_token = tokens[i + 1].strip()
+
+            if re.fullmatch(r"\d+'?", channel_token) and re.fullmatch(r"\d+(?:[\.,]\d+)?", freq_token):
+                is_prime = channel_token.endswith("'")
+                channel_index = int(channel_token.rstrip("'"))
+                subband = "upper" if is_prime else "lower"
+                channels.append(
+                    PlanChannel(
+                        channel_number=channel_token,
+                        channel_index=channel_index,
+                        is_prime=is_prime,
+                        subband=subband,
+                        center_freq_ghz=parse_decimal_token(freq_token),
+                    )
+                )
+                i += 2
+                continue
+
+            inline_matches = re.findall(r"(\d+'?)\s+(\d+(?:[\.,]\d+)?)", tokens[i])
+            if inline_matches:
+                for inline_channel_token, inline_freq_token in inline_matches:
+                    is_prime = inline_channel_token.endswith("'")
+                    channel_index = int(inline_channel_token.rstrip("'"))
+                    subband = "upper" if is_prime else "lower"
+                    channels.append(
+                        PlanChannel(
+                            channel_number=inline_channel_token,
+                            channel_index=channel_index,
+                            is_prime=is_prime,
+                            subband=subband,
+                            center_freq_ghz=parse_decimal_token(inline_freq_token),
+                        )
+                    )
+            i += 1
+
+    if not channels:
+        channels = extract_inline_channel_pairs(lines)
+
+    if not channels:
+        raise ValueError("Nie znaleziono tabeli kanałów w planie")
+
+    deduped: list[PlanChannel] = []
+    seen: set[tuple[str, float]] = set()
+    for channel in channels:
+        key = (channel.channel_number, channel.center_freq_ghz)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(channel)
+
+    if not any(channel.is_prime for channel in deduped):
+        deduped = [
+            PlanChannel(
+                channel_number=channel.channel_number,
+                channel_index=channel.channel_index,
+                is_prime=False,
+                subband="single",
+                center_freq_ghz=channel.center_freq_ghz,
+            )
+            for channel in deduped
+        ]
+
+    return deduped
+
+
+def parse_frequency_plan_from_rtf(path: Path) -> FrequencyPlan:
+    text = convert_rtf_to_text(path)
+    lines = cleanup_plan_lines(text)
+
+    symbol = find_plan_symbol_in_lines(lines, path)
+
+    channels = parse_plan_channels(lines)
+
+    subband_factor_values = [
+        parse_decimal_token(value)
+        for value in get_all_values_after_label(lines, ["wspczynnik podzakresu"])
+        if re.fullmatch(r"-?\d+(?:[\.,]\d+)?", value)
+    ]
+
+    lower_subband_factor_mhz = subband_factor_values[0] if len(subband_factor_values) >= 1 else None
+    upper_subband_factor_mhz = subband_factor_values[1] if len(subband_factor_values) >= 2 else None
+
+    return FrequencyPlan(
+        symbol=symbol,
+        source_filename=path.name,
+        source_format="rtf",
+        range_from_ghz=first_matching_value(lines, ["dla zakresu od", "dla zakresu"], parse_decimal_token),
+        range_to_ghz=first_matching_value(lines, ["do"], parse_decimal_token),
+        channel_width_mhz=first_matching_value(lines, ["szeroko", "szerokosc"], parse_decimal_token),
+        channel_spacing_mhz=first_matching_value(lines, ["odstep miedzykana", "odstep"], parse_decimal_token),
+        band_center_mhz=first_matching_value(lines, ["czstotliwosc zakresu", "czestotliwosc zakresu"], parse_decimal_token),
+        origin=get_value_after_label(lines, ["pochodzenie"]),
+        recommendation=get_value_after_label(lines, ["zalecenie"]),
+        recommendation_value=get_value_after_label(lines, ["rekomendacja"]),
+        annex_variant=get_value_after_label(lines, ["zalacznik", "wariant"]),
+        plan_type=get_value_after_label(lines, ["rodzaj planu"]),
+        message_type=get_value_after_label(lines, ["rodzaj wiadomosci"]),
+        duplex_spacing_mhz=first_matching_value(lines, ["odstp nadawania i odbioru", "odstep nadawania i odbioru"], parse_decimal_token),
+        min_duplex_spacing_mhz=first_matching_value(lines, ["min odstp nadawania i odbioru", "min odstep nadawania i odbioru"], parse_decimal_token),
+        guard_band_lower_mhz=first_matching_value(lines, ["pasmo ochronne dolne", "pasmo ochronne"], parse_decimal_token),
+        guard_band_upper_mhz=first_matching_value(lines, ["grne", "gorne"], parse_decimal_token),
+        lower_subband_factor_mhz=lower_subband_factor_mhz,
+        upper_subband_factor_mhz=upper_subband_factor_mhz,
+        first_channel=first_matching_value(lines, ["numer pierwszego kanalu", "numer pierwszego"], lambda value: int(parse_decimal_token(value))),
+        last_channel=first_matching_value(lines, ["numer ostatniego"], lambda value: int(parse_decimal_token(value))),
+        step=first_matching_value(lines, ["krok"], lambda value: int(parse_decimal_token(value))),
+        channels=channels,
+    )
+
+
+def load_plan_dataset_from_rtf(plan_dir: Path = PLAN_DIR) -> PlanDataset:
+    plan_files = discover_plan_files(plan_dir)
+    plans: dict[str, FrequencyPlan] = {}
+    for path in plan_files:
+        try:
+            plan = parse_frequency_plan_from_rtf(path)
+        except Exception as exc:
+            raise ValueError(f"Błąd parsowania planu {path.name}: {exc}. Ścieżka: {path}") from exc
+
+        if plan.symbol in plans:
+            raise ValueError(
+                f"Duplikat symbolu planu {plan.symbol!r} dla plików {plans[plan.symbol].source_filename!r} i {path.name!r}"
+            )
+
+        plans[plan.symbol] = plan
+
+    return PlanDataset(
+        source_dir=str(plan_dir),
+        loaded_files=[path.name for path in plan_files],
+        loaded_at=datetime.now(),
+        plans=plans,
+    )
+
+
+def get_plan_dataset(force_reload: bool = False) -> PlanDataset:
+    plan_files = discover_plan_files()
+    signature = build_plan_source_signature(plan_files)
+
+    if not force_reload:
+        cached = _load_plans_cache_from_disk()
+        if cached is not None and cached.source_signature == signature:
+            return cached.dataset
+
+    dataset = load_plan_dataset_from_rtf()
+    envelope = PlanCacheEnvelope(source_signature=signature, dataset=dataset)
+    _save_plans_cache_to_disk(envelope)
+    return dataset
+
+
+def get_plan_summary() -> dict[str, Any]:
+    dataset = get_plan_dataset()
+    return {
+        "plans_count": len(dataset.plans),
+        "loaded_files_count": len(dataset.loaded_files),
+        "loaded_files": dataset.loaded_files,
+        "loaded_at": dataset.loaded_at.isoformat(timespec="seconds"),
+        "symbols": sorted(dataset.plans.keys()),
+    }
+
+
+def row_to_record(
+    row_data: dict[str, Any],
+    source_filename: str,
+    source_sheet: str,
+) -> PermitRecord:
+    tx_site = Site(
+        role="TX",
+        point=GeoPoint(
+            lon_deg=parse_uke_coord(row_data["dl_geo_tx"]),
+            lat_deg=parse_uke_coord(row_data["sz_geo_tx"]),
+        ),
+        terrain_m_asl=parse_float(row_data.get("terrain_tx_m_asl")),
+        antenna_height_m_agl=parse_float(row_data.get("antenna_height_tx_m_agl")),
+        city=clean_text(row_data.get("city_tx")),
+        province=clean_text(row_data.get("province_tx")),
+        street=clean_text(row_data.get("street_tx")),
+        location_description=clean_text(row_data.get("location_desc_tx")),
+        antenna_type=clean_text(row_data.get("antenna_type_tx")),
+        antenna_vendor=clean_text(row_data.get("antenna_vendor_tx")),
+        antenna_gain_dbi=parse_float(row_data.get("antenna_gain_tx_dbi")),
+    )
+
+    rx_site = Site(
+        role="RX",
+        point=GeoPoint(
+            lon_deg=parse_uke_coord(row_data["dl_geo_rx"]),
+            lat_deg=parse_uke_coord(row_data["sz_geo_rx"]),
+        ),
+        terrain_m_asl=parse_float(row_data.get("terrain_rx_m_asl")),
+        antenna_height_m_agl=parse_float(row_data.get("antenna_height_rx_m_agl")),
+        city=clean_text(row_data.get("city_rx")),
+        province=clean_text(row_data.get("province_rx")),
+        street=clean_text(row_data.get("street_rx")),
+        location_description=clean_text(row_data.get("location_desc_rx")),
+        antenna_type=clean_text(row_data.get("antenna_type_rx")),
+        antenna_vendor=clean_text(row_data.get("antenna_vendor_rx")),
+        antenna_gain_dbi=parse_float(row_data.get("antenna_gain_rx_dbi")),
+    )
+
+    center_freq_ghz = parse_float(row_data["freq_ghz"])
+    if center_freq_ghz is None:
+        raise ValueError("Brak częstotliwości środkowej")
+
+    emission = RadioEmission(
+        center_freq_ghz=center_freq_ghz,
+        center_freq_mhz=center_freq_ghz * 1000.0,
+        channel_number=clean_text(row_data.get("channel_number")) or "",
+        plan_symbol=clean_text(row_data.get("plan_symbol")),
+        channel_width_mhz=parse_float(row_data.get("channel_width_mhz")),
+        polarization=clean_text(row_data.get("polarization")),
+        modulation=clean_text(row_data.get("modulation")),
+        bitrate_mbps=parse_bitrate_mbps(row_data.get("bitrate_mbps")),
+        eirp_dbm=parse_float(row_data.get("eirp_dbm")),
+        rx_antenna_attenuation_db=parse_float(row_data.get("rx_antenna_attenuation_db")),
+        radio_type=clean_text(row_data.get("radio_type")),
+        radio_vendor=clean_text(row_data.get("radio_vendor")),
+        rx_noise_figure_db=parse_float(row_data.get("rx_noise_figure_db")),
+        atpc_attenuation_db=parse_float(row_data.get("atpc_attenuation_db")),
+    )
+
+    return PermitRecord(
+        row_number=parse_int(row_data["lp"]),
+        operator_name=clean_text(row_data.get("operator_name")),
+        permit_number=clean_text(row_data.get("permit_number")),
+        decision_type=clean_text(row_data.get("decision_type")),
+        issue_date=parse_date(row_data.get("issue_date")),
+        valid_until=parse_date(row_data.get("valid_until")),
+        tx_site=tx_site,
+        rx_site=rx_site,
+        emission=emission,
+        source_filename=source_filename,
+        source_sheet=source_sheet,
+    )
+
+
+def load_dataset_from_xlsx(path: Path) -> PermissionDataset:
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    rows = sheet.iter_rows(values_only=True)
+    headers = list(next(rows))
+
+    records: list[PermitRecord] = []
+    for excel_row_index, row in enumerate(rows, start=2):
+        if not any(cell is not None and str(cell).strip() for cell in row):
+            continue
+
+        row_data = normalize_row(headers, row)
+        try:
+            record = row_to_record(
+                row_data=row_data,
+                source_filename=path.name,
+                source_sheet=sheet.title,
+            )
+        except Exception as exc:
+            lp_value = row_data.get("lp")
+            raise ValueError(
+                f"Błąd parsowania XLSX w wierszu Excel={excel_row_index}, L.p.={lp_value!r}: {exc}"
+            ) from exc
+        records.append(record)
+
+    stat = path.stat()
+    source = SourceFileInfo(
+        filename=path.name,
+        full_path=str(path),
+        file_size_bytes=stat.st_size,
+        modified_at=datetime.fromtimestamp(stat.st_mtime),
+        sheet_name=sheet.title,
+        rows_count=len(records),
+    )
+    return PermissionDataset(source=source, records=records)
+
+
+def _load_cache_from_disk() -> Optional[CacheEnvelope]:
+    if not CACHE_FILE.exists():
+        return None
+    with CACHE_FILE.open("rb") as fh:
+        return pickle.load(fh)
+
+
+def _save_cache_to_disk(envelope: CacheEnvelope) -> None:
+    with CACHE_FILE.open("wb") as fh:
+        pickle.dump(envelope, fh)
+
+
+def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
+    source_path = discover_latest_xlsx()
+    stat = source_path.stat()
+
+    if not force_reload:
+        cached = _load_cache_from_disk()
+        if cached is not None:
+            if (
+                cached.source_path == str(source_path)
+                and cached.source_mtime_ns == stat.st_mtime_ns
+                and cached.source_size == stat.st_size
+            ):
+                return cached.dataset
+
+    dataset = load_dataset_from_xlsx(source_path)
+    envelope = CacheEnvelope(
+        source_path=str(source_path),
+        source_mtime_ns=stat.st_mtime_ns,
+        source_size=stat.st_size,
+        dataset=dataset,
+    )
+    _save_cache_to_disk(envelope)
+    return dataset
+
+
+
+def get_source_summary() -> dict[str, Any]:
+    dataset = get_permissions_dataset()
+    return {
+        "filename": dataset.source.filename,
+        "full_path": dataset.source.full_path,
+        "rows_count": dataset.source.rows_count,
+        "sheet_name": dataset.source.sheet_name,
+        "file_size_bytes": dataset.source.file_size_bytes,
+        "modified_at": dataset.source.modified_at.isoformat(timespec="seconds"),
+    }
+
+
+def get_pairing_summary() -> dict[str, Any]:
+    dataset = get_permissions_dataset()
+    report = pair_duplex_links(dataset.records)
+    return {
+        "total_records": report.total_records,
+        "duplex_links": len(report.duplex_links),
+        "paired_records_count": report.paired_records_count,
+        "orphan_records_count": report.orphan_records_count,
+    }
+
+
+def install_uploaded_xlsx(uploaded_file: Path, *, replace_existing: bool = False) -> Path:
+    uploaded_file = Path(uploaded_file)
+    if uploaded_file.suffix.lower() != ".xlsx":
+        raise ValueError("Dozwolony jest wyłącznie plik .xlsx")
+
+    target = BASE_DIR / uploaded_file.name
+    if target.exists() and not replace_existing:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        target = BASE_DIR / f"{uploaded_file.stem}_{stamp}{uploaded_file.suffix}"
+
+    os.replace(uploaded_file, target)
+    get_permissions_dataset(force_reload=True)
+    return target
+
+
+if __name__ == "__main__":
+    summary = get_source_summary()
+    pairing = get_pairing_summary()
+    plans = get_plan_summary()
+    print(f"Źródło: {summary['filename']}")
+    print(f"Wiersze: {summary['rows_count']}")
+    print(f"Arkusz: {summary['sheet_name']}")
+    print(f"Modyfikacja: {summary['modified_at']}")
+    print(f"Łącza duplex: {pairing['duplex_links']}")
+    print(f"Sparowane rekordy: {pairing['paired_records_count']}")
+    print(f"Sieroty: {pairing['orphan_records_count']}")
+    print(f"Plany częstotliwości: {plans['plans_count']}")
+    print(f"Pliki planów: {plans['loaded_files_count']}")

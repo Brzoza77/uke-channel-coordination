@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UKE Channel Coordination</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <h1>UKE Channel Coordination</h1>
+        <p class="subtitle">Dashboard źródeł, upload WLR i podgląd wyników analizy.</p>
+      </div>
+      <div class="status-pill" id="healthStatus">API: nieznany</div>
+    </header>
+
+    <main class="layout-grid">
+      <section class="panel panel-wide" aria-labelledby="sourceSectionTitle">
+        <div class="panel-header">
+          <h2 id="sourceSectionTitle">Aktywne źródło danych</h2>
+          <button type="button" id="refreshSourceBtn">Odśwież</button>
+        </div>
+        <div id="sourceSummary" class="kv-grid">
+          <div class="kv-item"><span class="kv-key">Status</span><span class="kv-value">Ładowanie…</span></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="uploadSectionTitle">
+        <div class="panel-header">
+          <h2 id="uploadSectionTitle">Upload WLR</h2>
+        </div>
+        <form id="uploadForm" class="stack-form">
+          <label for="wlrFile">Plik WLR</label>
+          <input id="wlrFile" name="file" type="file" accept=".wlr" required>
+          <div class="button-row">
+            <button type="submit" id="uploadBtn">Wyślij plik</button>
+            <button type="button" id="analyzeBtn" disabled>Analizuj WLR</button>
+            <button type="button" id="downloadReportBtn" disabled>Pobierz PDF</button>
+          </div>
+        </form>
+        <div id="uploadResult" class="message-box muted">Brak przesłanego pliku.</div>
+      </section>
+
+      <section class="panel" aria-labelledby="requestSectionTitle">
+        <div class="panel-header">
+          <h2 id="requestSectionTitle">Sparsowane zapytanie</h2>
+        </div>
+        <div class="request-panel-grid">
+          <div id="requestSummary" class="kv-grid">
+            <div class="kv-item"><span class="kv-key">Status</span><span class="kv-value">Brak danych</span></div>
+          </div>
+          <div class="recent-wrap">
+            <h3>Ostatnio analizowane WLR</h3>
+            <div id="recentWlrList" class="recent-list">
+              <div class="muted">Brak historii analiz.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="mapSectionTitle">
+        <div class="panel-header">
+          <h2 id="mapSectionTitle">Mapa analizy</h2>
+        </div>
+        <div id="map" class="map-placeholder">
+          <div class="map-placeholder-text">
+            Mapa Leaflet pojawi się tutaj po podłączeniu warstwy JS i analizy WLR.
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="recommendationsSectionTitle">
+        <div class="panel-header">
+          <h2 id="recommendationsSectionTitle">Rekomendacje kanałów</h2>
+        </div>
+        <div id="recommendationsState" class="recommendations-state is-neutral">
+          Brak wyników analizy.
+        </div>
+        <div class="table-wrap">
+          <table id="recommendationsTable">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>A→B</th>
+                <th>B→A</th>
+                <th>Pol.</th>
+                <th>Score</th>
+                <th>Status</th>
+                <th>Red</th>
+                <th>Links</th>
+                <th>Opis</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="9" class="empty-cell">Brak wyników analizy.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="conflictsSectionTitle">
+        <div class="panel-header">
+          <h2 id="conflictsSectionTitle">Powody CONDITIONAL / REJECTED</h2>
+        </div>
+        <div class="table-wrap">
+          <table id="conflictsTable">
+            <thead>
+              <tr>
+                <th>Kanał</th>
+                <th>Status</th>
+                <th>A→B</th>
+                <th>B→A</th>
+                <th>Pol.</th>
+                <th>Score</th>
+                <th>Powód</th>
+                <th>Top konflikty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="8" class="empty-cell">Brak konfliktów do wyświetlenia.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="debugSectionTitle">
+        <div class="panel-header">
+          <h2 id="debugSectionTitle">Debug / odpowiedzi API</h2>
+        </div>
+        <pre id="debugBox" class="debug-box">Oczekiwanie na dane…</pre>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
