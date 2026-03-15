@@ -22,13 +22,14 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-shared-site-cross-isolation-2026-03-15"
+ENGINE_VERSION = "hcm-internal349-preselector-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
 EARTH_RADIUS_KM = 6371.0088
 DEFAULT_RADIUS_KM = 30.0
 DEFAULT_MAX_LINKS = 500
+DEFAULT_INTERNAL_EBAND_MAX_LINKS = 0
 DEFAULT_CORRIDOR_KM = 2.0
 DEFAULT_CROSS_POL_DISCRIMINATION_DB = 6.0
 APPLY_ATPC_TO_COORDINATION_AGGRESSOR = False
@@ -711,6 +712,8 @@ def select_candidate_links(
         selected.append((distance, link))
 
     selected.sort(key=lambda item: item[0])
+    if max_links <= 0:
+        return bbox, [link for _, link in selected]
     return bbox, [link for _, link in selected[:max_links]]
 
 
@@ -764,15 +767,6 @@ def candidate_matches_frequency_window(
     candidate: ChannelCandidate,
     link: DuplexLink,
 ) -> bool:
-    low_freq = min(freq for freq in (request.freq_ab_ghz, request.freq_ba_ghz) if freq is not None) if (request.freq_ab_ghz or request.freq_ba_ghz) else None
-    if low_freq is not None and low_freq >= EBAND_FULL_WINDOW_GHZ:
-        endpoint_distances = _endpoint_distances_km(request, link)
-        min_endpoint_distance = min(endpoint_distances.values())
-        req_mid_lat, req_mid_lon = request_midpoint(request)
-        link_mid_lat, link_mid_lon = link_midpoint(link)
-        midpoint_distance = haversine_km(req_mid_lat, req_mid_lon, link_mid_lat, link_mid_lon)
-        return not (min_endpoint_distance > DEFAULT_RADIUS_KM and midpoint_distance > DEFAULT_RADIUS_KM)
-
     request_bw_mhz = request.channel_width_mhz or 1.0
     link_bw_mhz = link.emission_ab.channel_width_mhz or request_bw_mhz
     max_allowed_delta_mhz = max(request_bw_mhz, link_bw_mhz) * MAX_CHANNEL_DELTA_FACTOR
@@ -2138,13 +2132,18 @@ def analyze_wlr_request(
     apply_corridor_filter = (not is_eband_or_higher) and (
         not ENABLE_ANNEX11_SEARCH_EXPANSION or effective_radius_km <= (radius_km + 1e-6)
     )
+    preselector_max_links = max_links
+    # For E-band on the internal UKE catalog we keep the full spatial pool and
+    # let the cheap per-candidate frequency screen do the heavy pruning.
+    if internal_catalog_available() and low_freq is not None and low_freq >= EBAND_FULL_WINDOW_GHZ:
+        preselector_max_links = DEFAULT_INTERNAL_EBAND_MAX_LINKS
 
     bbox, candidate_links = select_candidate_links(
         request,
         plan,
         request_operator_name=request_operator_name,
         radius_km=effective_radius_km,
-        max_links=max_links,
+        max_links=preselector_max_links,
         apply_corridor_filter=apply_corridor_filter,
     )
 
