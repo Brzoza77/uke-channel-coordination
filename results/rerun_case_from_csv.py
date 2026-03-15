@@ -6,6 +6,7 @@ import json
 import math
 import sys
 import unicodedata
+from collections import Counter
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +74,10 @@ def _normalize_station_text(value: str) -> str:
     text = unicodedata.normalize("NFKD", value or "")
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     text = text.lower()
+    text = text.replace("pawba", "pawla")
+    text = text.replace("zajczka", "zajaczka")
+    text = text.replace("powzkowska", "powazkowska")
+    text = text.replace("zwitoja", "swietoja")
     text = "".join(ch if ch.isalnum() else " " for ch in text)
     return " ".join(text.split())
 
@@ -83,6 +88,46 @@ def _station_matches(row_station: str, site_station: str) -> bool:
     if not row_norm or not site_norm:
         return False
     return row_norm in site_norm or site_norm in row_norm
+
+
+_STOP_TOKENS = {
+    "warszawa",
+    "ul",
+    "al",
+    "aleja",
+    "gen",
+    "jozefa",
+    "plac",
+    "pl",
+    "powiat",
+    "im",
+    "sw",
+}
+
+
+def _meaningful_tokens(value: str) -> list[str]:
+    return [token for token in _normalize_station_text(value).split() if token not in _STOP_TOKENS]
+
+
+def _address_matches(left: str, right: str) -> bool:
+    left_tokens = set(_meaningful_tokens(left))
+    right_tokens = set(_meaningful_tokens(right))
+    if not left_tokens or not right_tokens:
+        return False
+    left_numbers = {token for token in left_tokens if any(ch.isdigit() for ch in token)}
+    right_numbers = {token for token in right_tokens if any(ch.isdigit() for ch in token)}
+    left_words = {token for token in left_tokens if not any(ch.isdigit() for ch in token)}
+    right_words = {token for token in right_tokens if not any(ch.isdigit() for ch in token)}
+    number_ok = not left_numbers or not right_numbers or bool(left_numbers & right_numbers)
+    return number_ok and len(left_words & right_words) >= 1
+
+
+def _classify_request_side(label: str, request_a_label: str, request_b_label: str) -> str:
+    if _address_matches(label, request_a_label):
+        return "req_a"
+    if _address_matches(label, request_b_label):
+        return "req_b"
+    return "other"
 
 
 def _row_case_key(direction: str, section: str) -> str:
@@ -127,7 +172,96 @@ def _station_aware_case_key(row: dict[str, str], conflict: ConflictAssessment) -
     return _row_case_key(direction, section)
 
 
-def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]) -> list[dict[str, str]]:
+def _load_mapping_rules(path: Optional[Path]) -> dict[str, list[dict[str, object]]]:
+    if not path or not path.exists():
+        return {"exact": [], "family": []}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    exact_rules = list(payload.get("stable_rules", []))
+    family_rules: list[dict[str, object]] = []
+    for rule in payload.get("ambiguous_rules", []):
+        counter = Counter()
+        for subcase, count in (rule.get("best_subcase_counter") or {}).items():
+            family = "cross" if str(subcase).endswith("cross") else "direct" if str(subcase).endswith("direct") else ""
+            if family:
+                counter[family] += int(count)
+        if not counter:
+            continue
+        family, family_count = counter.most_common(1)[0]
+        row_count = int(rule.get("row_count") or 0)
+        share = (family_count / row_count) if row_count else 0.0
+        if row_count >= 4 and share >= 0.75:
+            family_rules.append(
+                {
+                    "pattern": rule.get("pattern", {}),
+                    "majority_family": family,
+                    "family_share": share,
+                    "row_count": row_count,
+                }
+            )
+    return {"exact": exact_rules, "family": family_rules}
+
+
+def _mapped_case_key(
+    row: dict[str, str],
+    conflict: ConflictAssessment,
+    request_a_label: str,
+    request_b_label: str,
+    mapping_rules: dict[str, list[dict[str, object]]],
+) -> str:
+    if not conflict:
+        return ""
+
+    details = conflict.details or {}
+    pattern = {
+        "direction": row.get("direction", ""),
+        "section": row.get("section", ""),
+        "station_side": "unknown",
+        "row_request_side": _classify_request_side(row.get("uke_link_station", ""), request_a_label, request_b_label),
+        "permit_site_a_request_side": _classify_request_side(
+            details.get("site_a_station_label", ""), request_a_label, request_b_label
+        ),
+        "permit_site_b_request_side": _classify_request_side(
+            details.get("site_b_station_label", ""), request_a_label, request_b_label
+        ),
+    }
+
+    row_station = row.get("uke_link_station", "")
+    if _station_matches(row_station, details.get("site_a_station_label", "")):
+        pattern["station_side"] = "site_a"
+    elif _station_matches(row_station, details.get("site_b_station_label", "")):
+        pattern["station_side"] = "site_b"
+
+    for rule in mapping_rules.get("exact", []):
+        if rule.get("pattern") == pattern:
+            return str(rule.get("majority_subcase") or "")
+
+    for rule in mapping_rules.get("family", []):
+        if rule.get("pattern") != pattern:
+            continue
+        family = str(rule.get("majority_family") or "")
+        family_candidates = []
+        for key, case_data in details.items():
+            if not isinstance(case_data, dict):
+                continue
+            if family == "cross" and not str(key).endswith("cross"):
+                continue
+            if family == "direct" and not str(key).endswith("direct"):
+                continue
+            family_candidates.append((float(case_data.get("degradation_db", 0.0)), str(key)))
+        if family_candidates:
+            family_candidates.sort(reverse=True)
+            return family_candidates[0][1]
+
+    return _station_aware_case_key(row, conflict)
+
+
+def update_rows(
+    rows: list[dict[str, str]],
+    assessments: list[ChannelAssessment],
+    request_a_label: str,
+    request_b_label: str,
+    mapping_rules: dict[str, list[dict[str, object]]],
+) -> list[dict[str, str]]:
     grouped_conflicts: dict[tuple[str, str, str, str, str], list[ConflictAssessment]] = {}
     for row in rows:
         key = (
@@ -160,8 +294,14 @@ def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]
         row["engine_conflict_permit"] = engine_conflict.permit_number if engine_conflict else ""
         case_key = _row_case_key(row["direction"], row["section"])
         station_case_key = _station_aware_case_key(row, engine_conflict) if engine_conflict else ""
+        mapped_case_key = (
+            _mapped_case_key(row, engine_conflict, request_a_label, request_b_label, mapping_rules)
+            if engine_conflict
+            else ""
+        )
         row["engine_case_key"] = case_key if engine_conflict else ""
         row["engine_station_case_key"] = station_case_key if engine_conflict else ""
+        row["engine_mapped_case_key"] = mapped_case_key if engine_conflict else ""
         row["engine_victim_db"] = (
             f"{(engine_conflict.estimated_degradation_victim_db or 0.0):.6f}" if engine_conflict else ""
         )
@@ -181,12 +321,16 @@ def update_rows(rows: list[dict[str, str]], assessments: list[ChannelAssessment]
         row["engine_overlap_ba_ratio"] = f"{(engine_conflict.overlap_ba_ratio or 0.0):.6f}" if engine_conflict else ""
         case_data = engine_conflict.details.get(case_key, {}) if engine_conflict else {}
         station_case_data = engine_conflict.details.get(station_case_key, {}) if engine_conflict else {}
+        mapped_case_data = engine_conflict.details.get(mapped_case_key, {}) if engine_conflict else {}
         row["engine_case_aligned_db"] = f"{float(case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_case_aligned_ci_db"] = f"{float(case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_case_aligned_margin_db"] = f"{float(case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_station_aligned_db"] = f"{float(station_case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_station_aligned_ci_db"] = f"{float(station_case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_station_aligned_margin_db"] = f"{float(station_case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_mapped_aligned_db"] = f"{float(mapped_case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_mapped_aligned_ci_db"] = f"{float(mapped_case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
+        row["engine_mapped_aligned_margin_db"] = f"{float(mapped_case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
 
     for row in rows:
         key = (
@@ -213,6 +357,7 @@ def main() -> None:
     parser.add_argument("--base-csv", required=True)
     parser.add_argument("--out-csv", required=True)
     parser.add_argument("--out-json", required=True)
+    parser.add_argument("--mapping-rules-json")
     args = parser.parse_args()
 
     wlr_path = Path(args.wlr).resolve()
@@ -235,6 +380,10 @@ def main() -> None:
         "engine_station_aligned_db",
         "engine_station_aligned_ci_db",
         "engine_station_aligned_margin_db",
+        "engine_mapped_case_key",
+        "engine_mapped_aligned_db",
+        "engine_mapped_aligned_ci_db",
+        "engine_mapped_aligned_margin_db",
     ]
     for name in extra_fieldnames:
         if name not in fieldnames:
@@ -242,7 +391,16 @@ def main() -> None:
 
     request = parse_wlr_file(wlr_path)
     analysis_result = analysis_engine.analyze_wlr_request(request)
-    updated_rows = update_rows(rows, analysis_result.channel_assessments)
+    mapping_rules = _load_mapping_rules(Path(args.mapping_rules_json).resolve()) if args.mapping_rules_json else []
+    request_a_label = f"{request.site_a.city} {request.site_a.street}".strip()
+    request_b_label = f"{request.site_b.city} {request.site_b.street}".strip()
+    updated_rows = update_rows(
+        rows,
+        analysis_result.channel_assessments,
+        request_a_label,
+        request_b_label,
+        mapping_rules,
+    )
     requested_assessment = find_assessment(
         assessments=analysis_result.channel_assessments,
         direction="A -> B",
