@@ -9,7 +9,16 @@ from typing import Any, Optional
 
 from antenna_catalog import interpolate_attenuation_db
 from radio_masks import lookup_mask_discrimination_db
-from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
+from uke import (
+    DuplexLink,
+    FrequencyPlan,
+    PlanChannel,
+    get_permissions_dataset,
+    pair_duplex_links,
+    get_plan_dataset,
+    get_internal_duplex_links_for_plan,
+    internal_catalog_available,
+)
 from wlr import WlrRequest
 
 ENGINE_VERSION = "hcm-shared-site-cross-isolation-2026-03-15"
@@ -680,7 +689,8 @@ def select_candidate_links(
     mid_lat, mid_lon = request_midpoint(request)
     selected: list[tuple[float, DuplexLink]] = []
 
-    for link in get_duplex_links():
+    links_pool = get_internal_duplex_links_for_plan(plan) if internal_catalog_available() else get_duplex_links()
+    for link in links_pool:
         points = [
             (link.site_a.point.lon_deg, link.site_a.point.lat_deg),
             (link.site_b.point.lon_deg, link.site_b.point.lat_deg),

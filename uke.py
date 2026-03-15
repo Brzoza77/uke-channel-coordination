@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional, Callable
 import os
 import re
 import pickle
+import sqlite3
 
 import subprocess
 
@@ -17,6 +19,21 @@ BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / ".cache"
 CACHE_DIR.mkdir(exist_ok=True)
 CACHE_FILE = CACHE_DIR / "permissions_cache.pkl"
+INTERNAL_SQLITE_PATH = BASE_DIR / "data" / "uke_workflow.sqlite"
+INTERNAL_REQUIRED_TABLES = (
+    "lr_konsultacja_349__decyzja",
+    "lr_konsultacja_349__przeslo_decyzji",
+    "lr_konsultacja_349__przeslo",
+    "lr_konsultacja_349__zastosowana_antena",
+    "lr_konsultacja_349__stacja",
+    "lr_konsultacja_349__konstrukcja",
+    "lr_konsultacja_349__obiekt_stacji",
+    "lr_konsultacja_349__plan",
+    "lr_konsultacja_349__nadajnik",
+    "lr_konsultacja_349__pasmo_anteny",
+    "lr_konsultacja_349__antena",
+    "lr_konsultacja_349__producent",
+)
 
 PLAN_DIR = BASE_DIR / "plany"
 PLANS_CACHE_FILE = CACHE_DIR / "plans_cache.pkl"
@@ -314,8 +331,30 @@ def parse_uke_coord(value: Any) -> float:
 def clean_text(value: Any) -> Optional[str]:
     if value is None:
         return None
-    text = str(value).strip()
+    text = "".join(ch for ch in str(value).strip() if ord(ch) >= 32 or ch in "\t\n\r")
     return text or None
+
+
+def internal_catalog_available(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> bool:
+    if not sqlite_path.exists():
+        return False
+    try:
+        with sqlite3.connect(sqlite_path) as con:
+            cur = con.cursor()
+            existing = {row[0] for row in cur.execute("select name from sqlite_master where type='table'")}
+        return all(table in existing for table in INTERNAL_REQUIRED_TABLES)
+    except sqlite3.Error:
+        return False
+
+
+def compute_internal_eirp_dbm(
+    tx_power_dbm: Optional[float],
+    tx_antenna_gain_dbi: Optional[float],
+    tx_circulator_loss_db: Optional[float],
+) -> Optional[float]:
+    if tx_power_dbm is None and tx_antenna_gain_dbi is None:
+        return None
+    return (tx_power_dbm or 0.0) + (tx_antenna_gain_dbi or 0.0) - (tx_circulator_loss_db or 0.0)
 
 
 def parse_optional_float_strict(value: Any) -> Optional[float]:
@@ -373,7 +412,7 @@ def parse_date(value: Any) -> Optional[date]:
     if text is None:
         return None
 
-    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
+    for fmt in ("%d-%m-%Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y", "%d/%m/%Y"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
@@ -1051,6 +1090,256 @@ def load_dataset_from_xlsx(path: Path) -> PermissionDataset:
     return PermissionDataset(source=source, records=records)
 
 
+def _internal_catalog_query() -> str:
+    return """
+    SELECT
+        d.nrdecyzji AS permit_number,
+        d.data_wydania,
+        d.data_waznosci,
+        p.prz_s_o_id AS span_id,
+        p.numer_kana_u AS channel_label,
+        p.polaryzacja,
+        p.czestotliwosc_przydzielona AS assigned_frequency_ghz,
+        pl.symbol_planu AS plan_symbol,
+        pl.odstep_kanalowy AS channel_width_mhz,
+        p.moc_nadajnika AS tx_power_dbm,
+        p.t_umienie_cyrkulator_w_n AS circ_loss_n_db,
+        p.t_umienie_cyrkulator_w_o AS circ_loss_o_db,
+        n.typ_nadajnika,
+        n.wsp_szum_w AS rx_noise_figure_db,
+        n.atpc AS atpc_attenuation_db,
+        prod_radio.nazwa_producenta AS radio_vendor,
+        st_n.u_ytkownik_id AS tx_user_id,
+        st_o.u_ytkownik_id AS rx_user_id,
+        st_n.operator AS tx_operator,
+        st_o.operator AS rx_operator,
+        pa_n.zysk_energetyczny AS tx_antenna_gain_dbi,
+        a_n.typ_anteny AS tx_antenna_type,
+        prod_n.nazwa_producenta AS tx_antenna_vendor,
+        za_n.h_anteny AS tx_antenna_height_m_agl,
+        k_n.h_terenu AS tx_terrain_m_asl,
+        ob_n.miejscowo AS tx_city,
+        ob_n.ulica_i_numer AS tx_street,
+        ob_n.opis_po_o_enia AS tx_location_description,
+        ob_n.powiat AS tx_province,
+        k_n.szer_geo AS tx_lat,
+        k_n.dlug_geo AS tx_lon,
+        pa_o.zysk_energetyczny AS rx_antenna_gain_dbi,
+        a_o.typ_anteny AS rx_antenna_type,
+        prod_o.nazwa_producenta AS rx_antenna_vendor,
+        za_o.h_anteny AS rx_antenna_height_m_agl,
+        k_o.h_terenu AS rx_terrain_m_asl,
+        ob_o.miejscowo AS rx_city,
+        ob_o.ulica_i_numer AS rx_street,
+        ob_o.opis_po_o_enia AS rx_location_description,
+        ob_o.powiat AS rx_province,
+        k_o.szer_geo AS rx_lat,
+        k_o.dlug_geo AS rx_lon
+    FROM lr_konsultacja_349__decyzja d
+    JOIN lr_konsultacja_349__przeslo_decyzji pd
+      ON pd.decyzja_id = d.decyzja_id
+    JOIN lr_konsultacja_349__przeslo p
+      ON p.prz_s_o_id = pd.prz_s_o_id
+    LEFT JOIN lr_konsultacja_349__plan pl
+      ON pl.plan_id = p.numer_planu
+    LEFT JOIN lr_konsultacja_349__nadajnik n
+      ON n.nadajnik_id = p.nadajnik_id
+    LEFT JOIN lr_konsultacja_349__producent prod_radio
+      ON prod_radio.producent_id = n.producent_id
+    LEFT JOIN lr_konsultacja_349__zastosowana_antena za_n
+      ON za_n.zastosowana_antena_id = p.antena_stacji_n_id
+    LEFT JOIN lr_konsultacja_349__stacja st_n
+      ON st_n.stacja_id = za_n.stacja_id
+    LEFT JOIN lr_konsultacja_349__konstrukcja k_n
+      ON k_n.konstrukcja_id = st_n.konstrukcja_id
+    LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_n
+      ON ob_n.obiekt_stacji_id = k_n.obiekt_stacji_id
+    LEFT JOIN lr_konsultacja_349__pasmo_anteny pa_n
+      ON pa_n.pasmo_anteny_id = p.pasmo_anteny_n_id
+    LEFT JOIN lr_konsultacja_349__antena a_n
+      ON a_n.antena_id = pa_n.antena_id
+    LEFT JOIN lr_konsultacja_349__producent prod_n
+      ON prod_n.producent_id = a_n.producent_id
+    LEFT JOIN lr_konsultacja_349__zastosowana_antena za_o
+      ON za_o.zastosowana_antena_id = p.antena_stacji_o_id
+    LEFT JOIN lr_konsultacja_349__stacja st_o
+      ON st_o.stacja_id = za_o.stacja_id
+    LEFT JOIN lr_konsultacja_349__konstrukcja k_o
+      ON k_o.konstrukcja_id = st_o.konstrukcja_id
+    LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_o
+      ON ob_o.obiekt_stacji_id = k_o.obiekt_stacji_id
+    LEFT JOIN lr_konsultacja_349__pasmo_anteny pa_o
+      ON pa_o.pasmo_anteny_id = p.pasmo_anteny_o_id
+    LEFT JOIN lr_konsultacja_349__antena a_o
+      ON a_o.antena_id = pa_o.antena_id
+    LEFT JOIN lr_konsultacja_349__producent prod_o
+      ON prod_o.producent_id = a_o.producent_id
+    """
+
+
+def _row_to_internal_record(row: sqlite3.Row, source_filename: str, source_sheet: str) -> Optional[PermitRecord]:
+    if row["tx_lat"] is None or row["tx_lon"] is None or row["rx_lat"] is None or row["rx_lon"] is None:
+        return None
+    if row["assigned_frequency_ghz"] is None:
+        return None
+
+    tx_site = Site(
+        role="TX",
+        point=GeoPoint(
+            lon_deg=parse_uke_coord(row["tx_lon"]),
+            lat_deg=parse_uke_coord(row["tx_lat"]),
+        ),
+        terrain_m_asl=row["tx_terrain_m_asl"],
+        antenna_height_m_agl=row["tx_antenna_height_m_agl"],
+        city=clean_text(row["tx_city"]),
+        province=clean_text(row["tx_province"]),
+        street=clean_text(row["tx_street"]),
+        location_description=clean_text(row["tx_location_description"]),
+        antenna_type=clean_text(row["tx_antenna_type"]),
+        antenna_vendor=clean_text(row["tx_antenna_vendor"]),
+        antenna_gain_dbi=row["tx_antenna_gain_dbi"],
+    )
+    rx_site = Site(
+        role="RX",
+        point=GeoPoint(
+            lon_deg=parse_uke_coord(row["rx_lon"]),
+            lat_deg=parse_uke_coord(row["rx_lat"]),
+        ),
+        terrain_m_asl=row["rx_terrain_m_asl"],
+        antenna_height_m_agl=row["rx_antenna_height_m_agl"],
+        city=clean_text(row["rx_city"]),
+        province=clean_text(row["rx_province"]),
+        street=clean_text(row["rx_street"]),
+        location_description=clean_text(row["rx_location_description"]),
+        antenna_type=clean_text(row["rx_antenna_type"]),
+        antenna_vendor=clean_text(row["rx_antenna_vendor"]),
+        antenna_gain_dbi=row["rx_antenna_gain_dbi"],
+    )
+
+    operator_name = clean_text(row["tx_operator"]) or clean_text(row["rx_operator"])
+    if operator_name is None and row["tx_user_id"] is not None and row["tx_user_id"] == row["rx_user_id"]:
+        operator_name = f"UKE_USER_{row['tx_user_id']}"
+
+    emission = RadioEmission(
+        center_freq_ghz=row["assigned_frequency_ghz"],
+        center_freq_mhz=row["assigned_frequency_ghz"] * 1000.0,
+        channel_number=clean_text(row["channel_label"]) or "",
+        plan_symbol=clean_text(row["plan_symbol"]),
+        channel_width_mhz=row["channel_width_mhz"],
+        polarization=clean_text(row["polaryzacja"]),
+        modulation=None,
+        bitrate_mbps=None,
+        eirp_dbm=compute_internal_eirp_dbm(
+            row["tx_power_dbm"],
+            row["tx_antenna_gain_dbi"],
+            row["circ_loss_n_db"],
+        ),
+        rx_antenna_attenuation_db=row["circ_loss_o_db"],
+        radio_type=clean_text(row["typ_nadajnika"]),
+        radio_vendor=clean_text(row["radio_vendor"]),
+        rx_noise_figure_db=row["rx_noise_figure_db"],
+        atpc_attenuation_db=row["atpc_attenuation_db"],
+    )
+
+    return PermitRecord(
+        row_number=int(row["span_id"]),
+        operator_name=operator_name,
+        permit_number=clean_text(row["permit_number"]),
+        decision_type=None,
+        issue_date=parse_date(row["data_wydania"]),
+        valid_until=parse_date(row["data_waznosci"]),
+        tx_site=tx_site,
+        rx_site=rx_site,
+        emission=emission,
+        source_filename=source_filename,
+        source_sheet=source_sheet,
+    )
+
+
+def load_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> PermissionDataset:
+    with sqlite3.connect(sqlite_path) as con:
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        rows = cur.execute(_internal_catalog_query()).fetchall()
+
+    records: list[PermitRecord] = []
+    for row in rows:
+        record = _row_to_internal_record(row, sqlite_path.name, "LR_Konsultacja_349")
+        if record is not None:
+            records.append(record)
+
+    stat = sqlite_path.stat()
+    source = SourceFileInfo(
+        filename=sqlite_path.name,
+        full_path=str(sqlite_path),
+        file_size_bytes=stat.st_size,
+        modified_at=datetime.fromtimestamp(stat.st_mtime),
+        sheet_name="LR_Konsultacja_349",
+        rows_count=len(records),
+    )
+    return PermissionDataset(source=source, records=records)
+
+
+def infer_plan_channel_width_mhz(plan: FrequencyPlan) -> Optional[float]:
+    if plan.channel_width_mhz is not None:
+        return plan.channel_width_mhz
+    subbands: dict[tuple[str, bool], list[float]] = {}
+    for channel in plan.channels:
+        subbands.setdefault((channel.subband, channel.is_prime), []).append(channel.center_freq_ghz)
+    deltas_mhz: list[float] = []
+    for freqs in subbands.values():
+        freqs = sorted(freqs)
+        for left, right in zip(freqs, freqs[1:]):
+            delta_mhz = round((right - left) * 1000.0, 6)
+            if delta_mhz > 0:
+                deltas_mhz.append(delta_mhz)
+    return min(deltas_mhz) if deltas_mhz else None
+
+
+@lru_cache(maxsize=64)
+def _get_internal_duplex_links_window_cached(
+    channel_width_mhz: Optional[float],
+    min_freq_ghz: float,
+    max_freq_ghz: float,
+) -> tuple[DuplexLink, ...]:
+    query = _internal_catalog_query() + """
+    WHERE p.czestotliwosc_przydzielona BETWEEN ? AND ?
+    """
+    params: list[Any] = [
+        min_freq_ghz - 0.25,
+        max_freq_ghz + 0.25,
+    ]
+    if channel_width_mhz is not None:
+        query += "\n  AND pl.odstep_kanalowy BETWEEN ? AND ?"
+        params.extend([channel_width_mhz - 0.001, channel_width_mhz + 0.001])
+    with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+        rows = cur.execute(query, params).fetchall()
+
+    records: list[PermitRecord] = []
+    for row in rows:
+        record = _row_to_internal_record(row, INTERNAL_SQLITE_PATH.name, "LR_Konsultacja_349")
+        if record is not None:
+            records.append(record)
+    report = pair_duplex_links(records)
+    return tuple(report.duplex_links)
+
+
+def get_internal_duplex_links_for_plan(plan: FrequencyPlan) -> list[DuplexLink]:
+    freqs = [channel.center_freq_ghz for channel in plan.channels]
+    channel_width_mhz = infer_plan_channel_width_mhz(plan)
+    if not freqs:
+        return []
+    return list(
+        _get_internal_duplex_links_window_cached(
+            channel_width_mhz,
+            min(freqs),
+            max(freqs),
+        )
+    )
+
+
 def _load_cache_from_disk() -> Optional[CacheEnvelope]:
     if not CACHE_FILE.exists():
         return None
@@ -1064,6 +1353,30 @@ def _save_cache_to_disk(envelope: CacheEnvelope) -> None:
 
 
 def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
+    if internal_catalog_available():
+        source_path = INTERNAL_SQLITE_PATH
+        stat = source_path.stat()
+
+        if not force_reload:
+            cached = _load_cache_from_disk()
+            if cached is not None:
+                if (
+                    cached.source_path == str(source_path)
+                    and cached.source_mtime_ns == stat.st_mtime_ns
+                    and cached.source_size == stat.st_size
+                ):
+                    return cached.dataset
+
+        dataset = load_dataset_from_internal_sqlite(source_path)
+        envelope = CacheEnvelope(
+            source_path=str(source_path),
+            source_mtime_ns=stat.st_mtime_ns,
+            source_size=stat.st_size,
+            dataset=dataset,
+        )
+        _save_cache_to_disk(envelope)
+        return dataset
+
     source_path = discover_latest_xlsx()
     stat = source_path.stat()
 
@@ -1090,6 +1403,19 @@ def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
 
 
 def get_source_summary() -> dict[str, Any]:
+    if internal_catalog_available():
+        stat = INTERNAL_SQLITE_PATH.stat()
+        with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
+            cur = con.cursor()
+            rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
+        return {
+            "filename": INTERNAL_SQLITE_PATH.name,
+            "full_path": str(INTERNAL_SQLITE_PATH),
+            "rows_count": rows_count,
+            "sheet_name": "LR_Konsultacja_349",
+            "file_size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+        }
     dataset = get_permissions_dataset()
     return {
         "filename": dataset.source.filename,
@@ -1102,6 +1428,36 @@ def get_source_summary() -> dict[str, Any]:
 
 
 def get_pairing_summary() -> dict[str, Any]:
+    if internal_catalog_available():
+        with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
+            cur = con.cursor()
+            total_records = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
+            duplex_links = cur.execute(
+                """
+                select count(*) from (
+                    select
+                        d.nrdecyzji,
+                        coalesce(p.polaryzacja, ''),
+                        coalesce(pl.symbol_planu, ''),
+                        replace(coalesce(p.numer_kana_u, ''), '''', '') as channel_base,
+                        min(p.antena_stacji_n_id, p.antena_stacji_o_id) as endpoint_a,
+                        max(p.antena_stacji_n_id, p.antena_stacji_o_id) as endpoint_b
+                    from lr_konsultacja_349__decyzja d
+                    join lr_konsultacja_349__przeslo_decyzji pd on pd.decyzja_id = d.decyzja_id
+                    join lr_konsultacja_349__przeslo p on p.prz_s_o_id = pd.prz_s_o_id
+                    left join lr_konsultacja_349__plan pl on pl.plan_id = p.numer_planu
+                    group by 1,2,3,4,5,6
+                )
+                """
+            ).fetchone()[0]
+        paired_records_count = min(total_records, duplex_links * 2)
+        orphan_records_count = max(0, total_records - paired_records_count)
+        return {
+            "total_records": total_records,
+            "duplex_links": duplex_links,
+            "paired_records_count": paired_records_count,
+            "orphan_records_count": orphan_records_count,
+        }
     dataset = get_permissions_dataset()
     report = pair_duplex_links(dataset.records)
     return {
