@@ -64,6 +64,7 @@ PORT=8013 ./run.sh
 
 - [Architektura](docs/ARCHITECTURE.md)
 - [Operacje i workflow](docs/OPERATIONS.md)
+- [Git - szybka sciaga](docs/GIT.md)
 
 ## Git
 
@@ -82,4 +83,3 @@ Domyslny `.gitignore` pomija:
 - artefakty lokalne
 
 Jesli chcesz wersjonowac wybrane dane testowe lub eksporty, trzeba je dodac swiadomie wyjatkami w `.gitignore`.
-
