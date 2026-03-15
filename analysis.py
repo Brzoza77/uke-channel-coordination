@@ -12,7 +12,7 @@ from radio_masks import lookup_mask_discrimination_db
 from uke import DuplexLink, FrequencyPlan, PlanChannel, get_permissions_dataset, pair_duplex_links, get_plan_dataset
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-blocking-density-hardening-2026-03-15"
+ENGINE_VERSION = "hcm-nonoverlap-blocking-2026-03-15"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -1509,6 +1509,8 @@ def is_blocking_conflict(conflict: ConflictAssessment) -> bool:
 
     if max_overlap <= 0.0 and conflict.conflict_type == "geometry":
         return False
+    if max_overlap <= 0.0 and worst_degradation <= MAX_ACCEPTED_DEGRADATION_DB:
+        return False
     if worst_margin < 0.0:
         return True
     if worst_degradation > MAX_ACCEPTED_DEGRADATION_DB:
@@ -1739,6 +1741,8 @@ def _directional_is_blocking(conflict: ConflictAssessment, direction: str) -> bo
     ci = _directional_ci(conflict, direction)
 
     if overlap <= 0.0 and conflict.conflict_type == "geometry":
+        return False
+    if overlap <= 0.0 and degradation <= MAX_ACCEPTED_DEGRADATION_DB:
         return False
     if margin < 0.0:
         return True
