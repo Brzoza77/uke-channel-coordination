@@ -6,7 +6,7 @@ Ten workflow służy do bezpiecznej analizy baz `LR_Konsultacja_349.mdb`, `db1.m
 
 1. Przenieść kluczowe tabele workflow UKE z MDB do SQLite.
 2. Zachować mapowanie nazw kolumn źródłowych.
-3. Umożliwić analizę na mocniejszej maszynie bez zależności od Accessa.
+3. Umożliwić analizę i odświeżanie lokalnej bazy SQLite bez zależności od Accessa.
 
 ## Skrypty
 
@@ -14,6 +14,10 @@ Ten workflow służy do bezpiecznej analizy baz `LR_Konsultacja_349.mdb`, `db1.m
   - [bootstrap_mdb.sh](/home/brzoza/uke/bootstrap_mdb.sh)
 - Eksport workflow do SQLite:
   - [results/extract_uke_workflow_sqlite.py](/home/brzoza/uke/results/extract_uke_workflow_sqlite.py)
+- Aktualizacja publikacji UKE i pobranie najnowszego archiwum:
+  - [results/update_uke_publication.py](/home/brzoza/uke/results/update_uke_publication.py)
+- Jednokomendowe odświeżenie `sqlite`:
+  - [refresh_uke_sqlite.sh](/home/brzoza/uke/refresh_uke_sqlite.sh)
 - Podsumowanie SQLite po eksporcie:
   - [results/analyze_uke_workflow_sqlite.py](/home/brzoza/uke/results/analyze_uke_workflow_sqlite.py)
 - Graf relacji workflow:
@@ -56,7 +60,51 @@ Eksport domyślnie obejmuje:
 - `OBIEKT STACJI`
 - `Adresy`
 
-## Uruchomienie na mocniejszej maszynie
+## Automatyczne odświeżenie z publikacji UKE
+
+Domyślny workflow jest teraz prosty:
+
+```bash
+./refresh_uke_sqlite.sh
+```
+
+Skrypt:
+
+1. sprawdza stronę UKE z publikacją linii radiowych,
+2. pobiera najnowsze archiwum `lr_konsultacja`,
+3. rozpakowuje `MDB`,
+4. buduje `data/uke_workflow.sqlite`,
+5. odświeża summary i graf workflow.
+
+Domyślnie nie rozpakowuje archiwum planów, bo plan kanałowy i tak pobieramy z `MDB`.
+
+Domyślne katalogi robocze:
+
+- `data/uke_source/downloads`
+- `data/uke_source/extracted`
+- `data/uke_source/state.json`
+
+Przydatne warianty:
+
+```bash
+UKE_AUTO_UPDATE=0 ./refresh_uke_sqlite.sh
+```
+
+Wyłącza check publikacji i używa lokalnych `MDB` z katalogu projektu.
+
+```bash
+UKE_SOURCE_ROOT=/ścieżka/robocza ./refresh_uke_sqlite.sh
+```
+
+Zmienia katalog pobierania i ekstrakcji archiwum.
+
+```bash
+UKE_DOWNLOAD_PLANY=1 ./refresh_uke_sqlite.sh
+```
+
+Włącza także pobieranie i ekstrakcję archiwum planów UKE.
+
+## Uruchomienie ręczne
 
 W katalogu projektu:
 

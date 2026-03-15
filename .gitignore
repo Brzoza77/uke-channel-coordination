@@ -9,13 +9,15 @@ reports/
 logs/
 
 data/*.sqlite
+data/*.sqlite-*
 data/*.json
+data/uke_source/
 
 *.mdb
+*.rar
 *.xlsx
 *.doc
 *.docx
 *.pdf
 
 debug.api
-

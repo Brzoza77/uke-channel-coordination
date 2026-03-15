@@ -1,17 +1,17 @@
 # UKE Channel Coordination
 
-Silnik analizy zaklocen dla linii radiowych, oparty o wejscie `WLR`, dane pozwolen radiowych z XLSX oraz dodatkowe dane antenowe/maski z baz UKE.
+Silnik analizy zaklocen dla linii radiowych, oparty o wejscie `WLR` i wewnetrzna baze `SQLite` budowana z publikacji `MDB` UKE.
 
 Projekt sklada sie z:
 - silnika obliczeniowego w `analysis.py`
 - parsera WLR w `wlr.py`
-- warstwy danych i planow w `uke.py`, `plany/`, `data/`
+- warstwy danych i planow w `uke.py` oraz `data/`
 - API i raportow PDF w `app.py`
 - frontendu dashboardowego w `index.html` i `static/`
 
 Uwaga:
-- pliki `*.mdb`, `*.xlsx`, `logs/`, `reports/`, `data/*.sqlite` oraz `.vendor/` nie sa przechowywane w repo
-- do analizy MDB na nowej maszynie trzeba uruchomic bootstrap zaleznosci z `bootstrap_mdb.sh`
+- pliki `*.mdb`, `*.rar`, `logs/`, `reports/`, `data/*.sqlite` oraz `.vendor/` nie sa przechowywane w repo
+- podstawowym zrodlem danych jest teraz `data/uke_workflow.sqlite`, odswiezane z publikacji UKE
 
 Aktualna wersja silnika:
 - `hcm-margin-first-2026-03-15`
@@ -41,7 +41,7 @@ PORT=8013 ./run.sh
 
 1. Wczytuje plik `WLR`
 2. Parsuje zadane przeslo, plan, czestotliwosci, polaryzacje i parametry radiowe
-3. Dobiera kandydackie linki z bazy pozwolen
+3. Dobiera kandydackie linki z wewnetrznego katalogu UKE zbudowanego z `MDB`
 4. Liczy konflikty:
    - co zakloca nas
    - co my zaklocamy
@@ -57,12 +57,29 @@ PORT=8013 ./run.sh
 - `analysis.py` - glowny silnik
 - `app.py` - FastAPI, raport PDF, mapa i odpowiedzi API
 - `wlr.py` - parser plikow WLR
-- `uke.py` - ladowanie XLSX i planow
+- `uke.py` - ladowanie danych i planow z wewnetrznej SQLite UKE
 - `static/` - frontend
-- `plany/` - pliki planow kanalowych
+- `data/` - lokalna baza SQLite budowana z `MDB`
 - `testy/` - pary `wlr-doc` do porownan z UKE
 - `results/` - skrypty pomocnicze, tuning, ekstrakcje MDB
 - `hcm/` - materialy HCM
+
+## Odswiezanie bazy UKE
+
+Jednym poleceniem:
+
+```bash
+./refresh_uke_sqlite.sh
+```
+
+Skrypt:
+- sprawdza publikacje UKE,
+- pobiera najnowsze `lr_konsultacja`,
+- rozpakowuje `MDB`,
+- buduje `data/uke_workflow.sqlite`,
+- odswieza artefakty workflow.
+
+Domyslnie nie pobiera archiwum planow, bo plany kanalowe sa odtwarzane z `MDB`.
 
 ## Dokumentacja
 
