@@ -981,6 +981,35 @@ To wzmacnia wcześniejszy wniosek:
 Raport:
 - `logs/access_status_transition_20260316.json`
 
+### Rola `nrsn`
+
+Ten trop udało się już dość dobrze zawęzić:
+
+- `nrsn` występuje tylko raz w korpusie ASCII `MDB`
+- `StNaRad1` występuje tylko raz
+- `status_kand` występuje tylko raz
+- wszystkie siedzą w jednym lokalnym bloku przy `wstaw_status`
+
+To bardzo mocno sugeruje, że:
+- `nrsn` nie jest globalnym statusem workflow
+- tylko lokalnym selectorem / kodem pomocniczym dla helpera `wstaw_status`
+
+Równolegle w innym miejscu widać klaster stanów pośrednich:
+- `stanp`
+- `stan_problem`
+- `stanprz`
+- `stanprzesla`
+
+Czyli najbardziej prawdopodobny obraz końcówki jest teraz taki:
+- pośrednie stany `stan*`
+- wynik `Stan_wniosku_po_weryfikacji`
+- lokalny selector przy `wstaw_status` (`nrsn`)
+- końcowy `status_kand`
+- finalny zapis `Status`
+
+Raport:
+- `logs/access_nrsn_role_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

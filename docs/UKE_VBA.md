@@ -756,6 +756,40 @@ Dodatkowy wynik:
 Raport:
 - `logs/access_status_transition_20260316.json`
 
+## Rola `nrsn`
+
+Osobny rozbiór `nrsn` zawęził ten trop do lokalnej warstwy helpera
+`wstaw_status`.
+
+Najważniejsze ustalenia:
+- `nrsn` występuje tylko raz w całym ASCII corpus `MDB`
+- `StNaRad1` też występuje tylko raz
+- `status_kand` też występuje tylko raz
+- wszystkie trzy symbole siedzą w jednym wspólnym bloku:
+  - `StNaRad1`
+  - `wstaw_status`
+  - `nrsn`
+  - `status_kand`
+
+Jednocześnie sąsiednie symbole stanu:
+- `stanp`
+- `stan_problem`
+- `stanprz`
+- `stanprzesla`
+
+tworzą osobny klaster pośrednich stanów proceduralnych.
+
+Wniosek:
+- `nrsn` nie wygląda na globalny znacznik workflow
+- wygląda raczej na lokalny selector / kod pomocniczy używany przez
+  `wstaw_status` przy wyznaczaniu `status_kand`
+
+Dodatkowo:
+- przeszukanie `strings -el` nie dało żadnych nowych wystąpień tych symboli
+
+Raport:
+- `logs/access_nrsn_role_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
