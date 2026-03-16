@@ -5,6 +5,7 @@ Najważniejsze artefakty:
 - `logs/access_vba_status_traces_20260316.json`
 - `logs/access_status_assignment_20260316.json`
 - `logs/access_candidate_state_flow_20260316.json`
+- `logs/access_qualification_flow_20260316.json`
 
 ## Co udało się potwierdzić
 
@@ -255,6 +256,37 @@ Najważniejsze ograniczenie:
   - `Status = 1` jest stanem startowym/domyslnym
   - `Status = 2` jest stanem promowanym proceduralnie i używanym dalej przez wydruk
   - `DobryKanal` i `Problem.decyzja_o_koordynacji` wyglądają na osobne stany pomocnicze, a nie synonimy końcowego `Status`
+
+## Warstwy kwalifikacji
+
+Na dziś najbardziej prawdopodobny podział proceduralny Accessa wygląda tak:
+
+1. warstwa planu / wrapper krajowy
+   - `Kwalifikacja_EMC_kraj`
+   - `generuj_fk`
+   - `druk_wynikow`
+   - wygląda na przebieg generujący i iterujący kandydaty w ramach planu
+
+2. warstwa per-kandydat
+   - `ExportTx_przeslo`
+   - `ExportRx_przeslo`
+   - `wpisz_dane_koor`
+   - `kwalifikacja_koor`
+   - `Kwalifikacja_EMC`
+   - `Stan_wniosku_po_weryfikacji`
+   - wygląda na bezpośrednią weryfikację konkretnego kandydata po przygotowaniu payloadu EMC
+
+3. warstwa promocji stanu
+   - `wstaw_status`
+   - `Koniec_obliczen`
+   - proceduralny `UPDATE` tabeli `Czestotliwosc kandydujaca`
+
+Najważniejszy wniosek z tej warstwy:
+- `Kwalifikacja_EMC_kraj` najpewniej nie jest samym setterem końcowego `Status`
+- bliżej końcowej decyzji wygląda para:
+  - `Kwalifikacja_EMC`
+  - `Stan_wniosku_po_weryfikacji`
+- a samo wpisanie `Status` nadal wygląda na osobny krok proceduralny VBA
 
 ## Najbardziej sensowny następny krok
 

@@ -484,6 +484,32 @@ Najuczciwszy stan wiedzy:
 - `DobryKanal` i `Problem.decyzja_o_koordynacji` wyglądają na oddzielne stany pomocnicze
 - nadal nie jest jeszcze odtworzona pełna semantyka wszystkich możliwych kodów statusu
 
+### Gdzie najpewniej siedzi kwalifikacja krajowa
+
+Najważniejszy artefakt:
+- `logs/access_qualification_flow_20260316.json`
+
+Najbardziej prawdopodobny podział:
+1. wrapper krajowy planu:
+   - `Kwalifikacja_EMC_kraj`
+   - `generuj_fk`
+   - `druk_wynikow`
+2. weryfikacja konkretnego kandydata:
+   - `wpisz_dane_koor`
+   - `kwalifikacja_koor`
+   - `Kwalifikacja_EMC`
+   - `Stan_wniosku_po_weryfikacji`
+3. finalna promocja stanu:
+   - `wstaw_status`
+   - proceduralny `UPDATE Czestotliwosc kandydujaca.status`
+
+Wniosek praktyczny:
+- `Kwalifikacja_EMC_kraj` wygląda bardziej jak orchestration wrapper dla krajowego przebiegu planu
+- bliżej końcowego wyboru kandydata siedzi para:
+  - `Kwalifikacja_EMC`
+  - `Stan_wniosku_po_weryfikacji`
+- samo wpisanie `Status = 2` nadal wygląda na osobny krok VBA, nie na prosty wynik pojedynczej kwerendy
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
