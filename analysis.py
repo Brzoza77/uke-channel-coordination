@@ -23,7 +23,7 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-emc-angle-observability-2026-03-16"
+ENGINE_VERSION = "hcm-access-like-candidate-state-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -149,6 +149,16 @@ class CandidateFrequencyRecord:
     pairwise_red_count: int = 0
     pairwise_cochannel_count: int = 0
     pairwise_blocking_count: int = 0
+    access_like_dobry_kanal_seed: str = "0"
+    access_like_dobry_kanal_value: str = "0"
+    access_like_problem_pair_count: int = 0
+    access_like_problem_decision: Optional[int] = None
+    access_like_problem_decision_1_count: int = 0
+    access_like_problem_decision_2_count: int = 0
+    access_like_status_seed: int = 1
+    access_like_status_code: int = 1
+    access_like_status_label: str = "PENDING"
+    access_like_state_notes: list[str] = field(default_factory=list)
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -267,6 +277,89 @@ def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEm
     return results
 
 
+def _pairwise_result_is_problem(result: PairwiseEmcResult) -> bool:
+    if result.margin_db is not None and result.margin_db < 0.0:
+        return True
+    if result.degradation_db is not None and result.degradation_db > MAX_ACCEPTED_DEGRADATION_DB:
+        return True
+    if result.ci_db is not None and result.overlap_ratio > 0.0 and result.ci_db < MIN_ACCEPTED_CI_DB:
+        return True
+    return False
+
+
+def _pairwise_problem_coordination_decision(result: PairwiseEmcResult) -> int:
+    ci_db = result.ci_db if result.ci_db is not None else 999.0
+    degradation_db = result.degradation_db if result.degradation_db is not None else 0.0
+    conditional_margin_db = _emc_margin_at_thresholds(
+        ci_db,
+        degradation_db,
+        MIN_CONDITIONAL_CI_DB,
+        MAX_CONDITIONAL_DEGRADATION_DB,
+    )
+    return 1 if conditional_margin_db >= 0.0 else 2
+
+
+def infer_access_like_candidate_state(
+    pairwise_results: list[PairwiseEmcResult],
+    worst_duplex_margin_db: Optional[float],
+    red_count: int,
+) -> dict[str, Any]:
+    problem_results = [result for result in pairwise_results if _pairwise_result_is_problem(result)]
+    decision_1_count = 0
+    decision_2_count = 0
+    notes: list[str] = ['DobryKanal initialised to "0"', "statusfk initialised to 1"]
+
+    for result in problem_results:
+        decision = _pairwise_problem_coordination_decision(result)
+        if decision == 1:
+            decision_1_count += 1
+        else:
+            decision_2_count += 1
+
+    problem_decision: Optional[int]
+    if decision_2_count:
+        problem_decision = 2
+        notes.append("At least one problem pair exceeds conditional coordination thresholds")
+    elif decision_1_count:
+        problem_decision = 1
+        notes.append("Problem pairs exist, but all stay within conditional coordination thresholds")
+    else:
+        problem_decision = None
+        notes.append("No problem pairs detected under Access-like strict thresholds")
+
+    if problem_decision is None:
+        dobry_kanal_value = "1"
+        notes.append("DobryKanal promoted to 1 in experimental model")
+    elif problem_decision == 1:
+        dobry_kanal_value = "1"
+        notes.append("DobryKanal stays viable despite coordination-required pairs")
+    else:
+        dobry_kanal_value = "0"
+        notes.append("DobryKanal remains 0 because a pair requires hard rejection")
+
+    selected_for_report = (
+        problem_decision != 2
+        and red_count == 0
+        and (worst_duplex_margin_db is None or worst_duplex_margin_db >= -3.0)
+    )
+    status_code = 2 if selected_for_report else 1
+    status_label = "SELECTED" if status_code == 2 else "PENDING"
+    notes.append(f"Experimental final Status={status_code}")
+
+    return {
+        "dobry_kanal_seed": "0",
+        "dobry_kanal_value": dobry_kanal_value,
+        "problem_pair_count": len(problem_results),
+        "problem_decision": problem_decision,
+        "problem_decision_1_count": decision_1_count,
+        "problem_decision_2_count": decision_2_count,
+        "status_seed": 1,
+        "status_code": status_code,
+        "status_label": status_label,
+        "state_notes": notes,
+    }
+
+
 def build_candidate_frequency_record(
     request: WlrRequest,
     assessment: ChannelAssessment,
@@ -302,6 +395,7 @@ def build_candidate_frequency_record(
         inferred_uke_like_status = "CONDITIONAL"
     else:
         inferred_uke_like_status = "REJECTED"
+    access_like_state = infer_access_like_candidate_state(pairwise_results, worst_duplex_margin_db, red_count)
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -325,6 +419,16 @@ def build_candidate_frequency_record(
         pairwise_red_count=red_count,
         pairwise_cochannel_count=cochannel_count,
         pairwise_blocking_count=blocking_count,
+        access_like_dobry_kanal_seed=access_like_state["dobry_kanal_seed"],
+        access_like_dobry_kanal_value=access_like_state["dobry_kanal_value"],
+        access_like_problem_pair_count=access_like_state["problem_pair_count"],
+        access_like_problem_decision=access_like_state["problem_decision"],
+        access_like_problem_decision_1_count=access_like_state["problem_decision_1_count"],
+        access_like_problem_decision_2_count=access_like_state["problem_decision_2_count"],
+        access_like_status_seed=access_like_state["status_seed"],
+        access_like_status_code=access_like_state["status_code"],
+        access_like_status_label=access_like_state["status_label"],
+        access_like_state_notes=access_like_state["state_notes"],
         pairwise_results=pairwise_results,
     )
 
@@ -389,6 +493,58 @@ def _candidate_record_sort_key(
         freq_ab_ghz=record.freq_ab_ghz,
         freq_ba_ghz=record.freq_ba_ghz,
         polarization=record.polarization,
+    )
+    orientation = orientation_preference_penalty(request, candidate) if prioritize_orientation else 0
+    both_ok, one_ok = _record_status_priority(record)
+    return (
+        record.status_rank_value,
+        both_ok,
+        one_ok,
+        orientation,
+        -_record_worst_margin(record),
+        record.pairwise_blocking_count,
+        _record_pairwise_cochannel_count(record),
+        _record_pairwise_red_count(record),
+        record.requested_distance,
+        polarization_preference_penalty(request, candidate),
+        record.score,
+        record.channel_ab,
+        record.channel_ba,
+        record.polarization,
+    )
+
+
+def _candidate_record_access_like_sort_key(
+    request: WlrRequest,
+    record: CandidateFrequencyRecord,
+    prioritize_orientation: bool,
+) -> tuple[Any, ...]:
+    candidate = ChannelCandidate(
+        plan_symbol=record.plan_symbol,
+        channel_ab=record.channel_ab,
+        channel_ba=record.channel_ba,
+        freq_ab_ghz=record.freq_ab_ghz,
+        freq_ba_ghz=record.freq_ba_ghz,
+        polarization=record.polarization,
+    )
+    orientation = orientation_preference_penalty(request, candidate) if prioritize_orientation else 0
+    problem_decision_rank = 0 if record.access_like_problem_decision in (None, 1) else 1
+    return (
+        0 if record.access_like_status_code == 2 else 1,
+        problem_decision_rank,
+        orientation,
+        record.access_like_problem_decision_2_count,
+        record.access_like_problem_pair_count,
+        -_record_worst_margin(record),
+        record.pairwise_blocking_count,
+        _record_pairwise_cochannel_count(record),
+        _record_pairwise_red_count(record),
+        record.requested_distance,
+        polarization_preference_penalty(request, candidate),
+        record.score,
+        record.channel_ab,
+        record.channel_ba,
+        record.polarization,
     )
     orientation = orientation_preference_penalty(request, candidate) if prioritize_orientation else 0
     both_ok, one_ok = _record_status_priority(record)

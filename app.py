@@ -265,6 +265,16 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                     "worst_margin_ab_db": margin_ab,
                     "worst_margin_ba_db": margin_ba,
                     "worst_duplex_margin_db": record.worst_duplex_margin_db if record else None,
+                    "access_like_dobry_kanal_seed": record.access_like_dobry_kanal_seed if record else None,
+                    "access_like_dobry_kanal_value": record.access_like_dobry_kanal_value if record else None,
+                    "access_like_problem_pair_count": record.access_like_problem_pair_count if record else None,
+                    "access_like_problem_decision": record.access_like_problem_decision if record else None,
+                    "access_like_problem_decision_1_count": record.access_like_problem_decision_1_count if record else None,
+                    "access_like_problem_decision_2_count": record.access_like_problem_decision_2_count if record else None,
+                    "access_like_status_seed": record.access_like_status_seed if record else None,
+                    "access_like_status_code": record.access_like_status_code if record else None,
+                    "access_like_status_label": record.access_like_status_label if record else None,
+                    "access_like_state_notes": record.access_like_state_notes if record else [],
                 },
             )
         )
@@ -524,6 +534,16 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             "inferred_uke_like_status": requested_record.inferred_uke_like_status if requested_record else None,
             "uke_like_problem_flags": requested_record.uke_like_problem_flags if requested_record else [],
             "worst_duplex_margin_db": requested_record.worst_duplex_margin_db if requested_record else None,
+            "access_like_dobry_kanal_seed": requested_record.access_like_dobry_kanal_seed if requested_record else None,
+            "access_like_dobry_kanal_value": requested_record.access_like_dobry_kanal_value if requested_record else None,
+            "access_like_problem_pair_count": requested_record.access_like_problem_pair_count if requested_record else None,
+            "access_like_problem_decision": requested_record.access_like_problem_decision if requested_record else None,
+            "access_like_problem_decision_1_count": requested_record.access_like_problem_decision_1_count if requested_record else None,
+            "access_like_problem_decision_2_count": requested_record.access_like_problem_decision_2_count if requested_record else None,
+            "access_like_status_seed": requested_record.access_like_status_seed if requested_record else None,
+            "access_like_status_code": requested_record.access_like_status_code if requested_record else None,
+            "access_like_status_label": requested_record.access_like_status_label if requested_record else None,
+            "access_like_state_notes": requested_record.access_like_state_notes if requested_record else [],
             "channel_ab": requested_assessment.candidate.channel_ab if requested_assessment else None,
             "channel_ba": requested_assessment.candidate.channel_ba if requested_assessment else None,
             "candidate_polarization": requested_assessment.candidate.polarization if requested_assessment else None,
@@ -551,6 +571,16 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                 "pairwise_blocking_count": record.pairwise_blocking_count,
                 "cochannel_pairwise_count": record.pairwise_cochannel_count,
                 "red_pairwise_count": record.pairwise_red_count,
+                "access_like_dobry_kanal_seed": record.access_like_dobry_kanal_seed,
+                "access_like_dobry_kanal_value": record.access_like_dobry_kanal_value,
+                "access_like_problem_pair_count": record.access_like_problem_pair_count,
+                "access_like_problem_decision": record.access_like_problem_decision,
+                "access_like_problem_decision_1_count": record.access_like_problem_decision_1_count,
+                "access_like_problem_decision_2_count": record.access_like_problem_decision_2_count,
+                "access_like_status_seed": record.access_like_status_seed,
+                "access_like_status_code": record.access_like_status_code,
+                "access_like_status_label": record.access_like_status_label,
+                "access_like_state_notes": record.access_like_state_notes,
                 "uke_like_directional_rows": build_uke_like_directional_candidate_rows(record),
                 "best_explanation": (
                     display_assessment_by_key[
@@ -574,6 +604,27 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
                 ),
             }
             for record in candidate_frequency_records[:10]
+        ],
+        "access_like_top_candidates": [
+            {
+                "status": record.status,
+                "channel_ab": record.channel_ab,
+                "channel_ba": record.channel_ba,
+                "polarization": record.polarization,
+                "requested_distance": record.requested_distance,
+                "worst_duplex_margin_db": record.worst_duplex_margin_db,
+                "access_like_dobry_kanal_seed": record.access_like_dobry_kanal_seed,
+                "access_like_dobry_kanal_value": record.access_like_dobry_kanal_value,
+                "access_like_problem_pair_count": record.access_like_problem_pair_count,
+                "access_like_problem_decision": record.access_like_problem_decision,
+                "access_like_problem_decision_1_count": record.access_like_problem_decision_1_count,
+                "access_like_problem_decision_2_count": record.access_like_problem_decision_2_count,
+                "access_like_status_seed": record.access_like_status_seed,
+                "access_like_status_code": record.access_like_status_code,
+                "access_like_status_label": record.access_like_status_label,
+                "access_like_state_notes": record.access_like_state_notes,
+            }
+            for record in sorted(candidate_frequency_records, key=_access_like_record_sort_key)[:10]
         ],
     }
 
@@ -617,6 +668,24 @@ def _format_endpoint(parsed_request, endpoint, fallback_label: str) -> str:
     address = endpoint.name or fallback_label
     coords = f"{endpoint.lat_deg:.5f}, {endpoint.lon_deg:.5f}"
     return f"{address} ({coords})"
+
+
+def _access_like_record_sort_key(record) -> tuple:
+    worst_margin = record.worst_duplex_margin_db if record.worst_duplex_margin_db is not None else -999.0
+    return (
+        0 if record.access_like_status_code == 2 else 1,
+        0 if record.access_like_problem_decision in (None, 1) else 1,
+        record.access_like_problem_decision_2_count,
+        record.access_like_problem_pair_count,
+        -worst_margin,
+        record.pairwise_blocking_count,
+        record.pairwise_cochannel_count,
+        record.pairwise_red_count,
+        record.requested_distance,
+        record.channel_ab,
+        record.channel_ba,
+        record.polarization,
+    )
 
 
 def _fit_text(pdf: canvas.Canvas, text: str, max_width: float, font_name: str, font_size: float) -> str:
