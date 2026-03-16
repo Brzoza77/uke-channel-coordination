@@ -424,6 +424,65 @@ Dlaczego:
 Raport testu:
 - `logs/access_writer_hypotheses_20260316.json`
 
+## Warstwa aktualizacji `fkand`
+
+Najmocniejszy nowy trop nie wskazuje na prosty flip:
+- `wsk=1 -> b-i`
+- `wsk=2 -> i-b`
+
+Zamiast tego Access wygląda tak, jakby robił osobny etap pomiędzy:
+- `wyniki_EMC_prz`
+- a `wyniki_EMC_fk`
+
+Najważniejsze ślady:
+- w jednym bloku lokalnych zmiennych współwystępują:
+  - `jest_wynikN`
+  - `jest_wynikO`
+  - `Marg_n`
+  - `Marg_o`
+  - `MargNad`
+  - `MargOdb`
+  - `N-nad`
+  - `N-odb`
+  - `statusfk`
+  - `p_czy_fk`
+- osobny komentarz proceduralny:
+  - `FID - identyfikator fkand lub zero(null) dla przesla`
+  - `p_czy_fk = 0 dla przęsła`
+  - `p_czy_fk = 1 dla fkand`
+- zaraz po wrapperach:
+  - `wyniki_EMC_prz ... Marg_n ...`
+  - `wyniki_EMC_prz ... Marg_o ...`
+  pojawia się:
+  - `aktualizacja parametr`
+  - `w fkand`
+  - `Czestotliwosc kandydujaca`
+  - `[FKandydujaca#] = ...`
+
+Najbardziej prawdopodobny przebieg:
+1. Access liczy dwie gałęzie krajowe:
+   - `Marg_n / dz`
+   - `Marg_o / Dzi`
+2. zapisuje je wrapperem `wyniki_EMC_prz`
+3. potem wchodzi w blok:
+   - `aktualizacja parametr w fkand`
+4. tam agreguje wynik do pól kandydata:
+   - `MargNad`
+   - `MargOdb`
+   - `N-nad`
+   - `N-odb`
+5. dopiero potem używa:
+   - `wyniki_EMC_fk`
+   - i późniejszych warstw statusu / wydruku
+
+Wniosek:
+- brakująca warstwa nie jest dziś problemem etykiety `b-i/i-b`
+- to proceduralna aktualizacja stanu kandydata `fkand`
+- właśnie tam Access najpewniej scala surowe gałęzie `N/O` do kierunkowych marginesów używanych dalej w workflow
+
+Raport tej warstwy:
+- `logs/access_fk_update_layer_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

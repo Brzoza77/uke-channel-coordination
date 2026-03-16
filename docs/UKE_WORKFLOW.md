@@ -615,6 +615,68 @@ Powód:
 Raport testu:
 - `logs/access_writer_hypotheses_20260316.json`
 
+## Brakująca warstwa: aktualizacja `fkand`
+
+Najmocniejszy nowy trop z VBA i surowych stringów `MDB` wskazuje, że pomiędzy:
+- `wyniki_EMC_prz`
+- a `wyniki_EMC_fk`
+
+Access ma jeszcze jeden etap proceduralny:
+- `aktualizacja parametr`
+- `w fkand`
+- `Czestotliwosc kandydujaca`
+- `[FKandydujaca#] = ...`
+
+To wygląda na warstwę, która nie zapisuje jeszcze finalnego wiersza `Wynik EMC-LR`,
+tylko najpierw scala gałęzie:
+- `Marg_n / dz`
+- `Marg_o / Dzi`
+
+do pól rekordu kandydata:
+- `MargNad`
+- `MargOdb`
+- `N-nad`
+- `N-odb`
+
+Najmocniejsze ślady:
+- wspólny blok lokalnych zmiennych zawiera jednocześnie:
+  - `jest_wynikN`
+  - `jest_wynikO`
+  - `Marg_n`
+  - `Marg_o`
+  - `MargNad`
+  - `MargOdb`
+  - `N-nad`
+  - `N-odb`
+  - `statusfk`
+  - `p_czy_fk`
+- komentarz proceduralny:
+  - `FID - identyfikator fkand lub zero(null) dla przesła`
+  - `p_czy_fk = 0 dla przęsła`
+  - `p_czy_fk = 1 dla fkand`
+- bezpośrednio po dwóch wywołaniach `wyniki_EMC_prz` pojawia się blok:
+  - `aktualizacja parametr w fkand`
+
+Najbardziej prawdopodobny przebieg jest dziś taki:
+1. Access liczy dwie krajowe gałęzie EMC dla przęsła:
+   - `Marg_n / dz`
+   - `Marg_o / Dzi`
+2. zapisuje je wrapperem `wyniki_EMC_prz`
+3. wchodzi w blok aktualizacji `fkand`
+4. uzupełnia kierunkowe pola kandydata:
+   - `MargNad`
+   - `MargOdb`
+   - `N-nad`
+   - `N-odb`
+5. dopiero potem zapisuje wynik kandydata i przechodzi do statusu / wydruku
+
+Wniosek:
+- brakująca logika nie jest prostym mapowaniem `wsk -> b-i/i-b`
+- to osobny etap agregacji i aktualizacji stanu kandydata
+
+Raport tej warstwy:
+- `logs/access_fk_update_layer_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
