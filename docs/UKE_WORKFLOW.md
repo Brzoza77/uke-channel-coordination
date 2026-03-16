@@ -1090,6 +1090,35 @@ Dodatkowo:
 Raport:
 - `logs/access_hidden_status_writer_20260316.json`
 
+### Dispatcher statusu niekompatybilności
+
+Najmocniejszy obecnie trop dispatcher’a statusu wygląda tak:
+
+- komunikat:
+  - `nadaj czestotliwosci status niekompatybilna`
+  pojawia się dwa razy
+- raz tuż przed:
+  - `wyniki_EMC_prz ..., Marg_n, dz, ..., 1, 1, ...`
+- drugi raz tuż przed:
+  - `wyniki_EMC_prz ..., Marg_o, Dzi, ..., 2, 1, ...`
+
+I co najważniejsze:
+- po drugiej gałęzi pojawia się zaraz:
+  - `aktualizacja parametr`
+  - `w fkand`
+  - `Czestotliwosc kandydujaca`
+
+To bardzo mocno sugeruje:
+1. niekompatybilność jest rozpoznawana już na poziomie gałęzi `Marg_n/Marg_o`
+2. `wyniki_EMC_prz` zapisuje wynik parowy
+3. `aktualizacja parametr w fkand` propaguje ten stan do kandydata
+4. dopiero później osobny writer SQL zapisuje finalny `Status`
+
+To jest dziś najbliższy odzyskany model realnego dispatchera statusu.
+
+Raport:
+- `logs/access_status_dispatcher_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

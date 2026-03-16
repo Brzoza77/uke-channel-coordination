@@ -904,6 +904,44 @@ To daje dziś taki model:
 Raport:
 - `logs/access_hidden_status_writer_20260316.json`
 
+## Dispatcher statusu niekompatybilności
+
+Najmocniejszy dotąd trop dispatcher’a statusu pojawił się przy komunikacie:
+- `nadaj czestotliwosci status niekompatybilna`
+
+Odzyskane są dwie takie gałęzie:
+1. gałąź `Marg_n`
+   - bezpośrednio przed:
+     - `wyniki_EMC_prz ..., Marg_n, dz, ..., 1, 1, ...`
+2. gałąź `Marg_o`
+   - bezpośrednio przed:
+     - `wyniki_EMC_prz ..., Marg_o, Dzi, ..., 2, 1, ...`
+
+I najważniejsze:
+- w drugiej gałęzi, chwilę dalej, pojawia się:
+  - `aktualizacja parametr`
+  - `w fkand`
+  - `Czestotliwosc kandydujaca`
+
+To jest obecnie najmocniejszy odzyskany most między:
+- wykryciem niekompatybilności na poziomie parowego EMC
+- a aktualizacją stanu kandydata
+
+Najbardziej prawdopodobny model:
+1. gałąź `Marg_n/Marg_o` wykrywa niekompatybilność
+2. lokalnie nadaje stan:
+   - `status niekompatybilna`
+3. `wyniki_EMC_prz` zapisuje wynik parowy
+4. `aktualizacja parametr w fkand` propaguje to do stanu kandydata
+5. późniejszy writer SQL zapisuje końcowy `Status`
+
+To wygląda teraz bardziej jak dwuwarstwowy dispatcher:
+- warstwa decyzji niekompatybilności przy `wyniki_EMC_prz`
+- warstwa późniejszego writebacku SQL
+
+Raport:
+- `logs/access_status_dispatcher_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
