@@ -416,6 +416,7 @@ Praktycznie:
 
 Najważniejszy artefakt:
 - `logs/access_vba_status_traces_20260316.json`
+- `logs/access_candidate_state_flow_20260316.json`
 
 W surowych stringach `LR_Konsultacja_349.mdb` udało się potwierdzić ślady VBA:
 
@@ -442,6 +443,41 @@ Wniosek:
   - uruchom EMC / zapisz `Wynik EMC-LR`
   - zaktualizuj rekord `Czestotliwosc kandydujaca`
   - wybierz do raportu kandydaty z `Status = 2`
+
+### Co już wiemy o przejściu `Status 1 -> 2`
+
+Najmocniejsze ślady z `MDB`:
+- `statusfk = 1`
+- `If status_fkand_zagr = 2 Then status_fkand = 2`
+- `If blad > 0 Then Koniec_obliczen dbb, fid(i), status_fkand: Exit Function`
+- `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [Czestotliwosc kandydujaca].[status] = ...`
+- identyfikatory:
+  - `wstaw_status`
+  - `status_kand`
+  - `kwalifikacja_koor`
+  - `Kwalifikacja_EMC`
+  - `Stan_wniosku_po_weryfikacji`
+
+Najbardziej prawdopodobny przebieg:
+1. Access inicjalizuje kandydata jako `statusfk = 1`.
+2. Dla gałęzi problemowej / zagranicznej wywołuje `obliczenia_EMC_POL_ZAGR`.
+3. Jeżeli `status_fkand_zagr = 2`, to kandydat lokalny dostaje promocję:
+   - `status_fkand = 2`
+4. Jeżeli występuje problem kompatybilności (`TD > 1`), Access:
+   - zapisuje rekord `problem_kons`
+   - oznacza `stat_koor`
+5. Access zapisuje dane koordynacyjne i wykonuje:
+   - `wpisz_dane_koor`
+   - `kwalifikacja_koor`
+   - `Kwalifikacja_EMC`
+   - `Stan_wniosku_po_weryfikacji`
+6. Na końcu procedura VBA wykonuje `UPDATE` rekordu w `Czestotliwosc kandydujaca`.
+7. Warstwa `Wyniki_do_wydruku` bierze już tylko kandydaty z `Status = 2`.
+
+Najuczciwszy stan wiedzy:
+- `Status = 1` wygląda na stan startowy / domyślny
+- `Status = 2` wygląda na stan promowany proceduralnie i używany przez końcową ścieżkę raportową
+- nadal nie jest jeszcze odtworzona pełna semantyka wszystkich możliwych kodów statusu
 
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.

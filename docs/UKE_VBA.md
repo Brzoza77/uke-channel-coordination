@@ -4,6 +4,7 @@ Najważniejsze artefakty:
 - `logs/access_vba_modules_analysis_20260316.json`
 - `logs/access_vba_status_traces_20260316.json`
 - `logs/access_status_assignment_20260316.json`
+- `logs/access_candidate_state_flow_20260316.json`
 
 ## Co udało się potwierdzić
 
@@ -205,6 +206,50 @@ Realny przebieg wygląda raczej tak:
 4. uruchomienie procedur EMC
 5. proceduralny `UPDATE` rekordów `Czestotliwosc kandydujaca`, w tym `Status`
 6. dopiero potem wydruk przez `Wyniki_do_wydruku`
+
+## Rekonstrukcja stanu kandydata
+
+Najważniejsze twarde ślady z `MDB`:
+- `statusfk = 1`
+- `If status_fkand_zagr = 2 Then status_fkand = 2`
+- `If blad > 0 Then Koniec_obliczen dbb, fid(i), status_fkand: Exit Function`
+- `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [Czestotliwosc kandydujaca].[status] = ... WHERE [FKandydujaca#] = ...`
+- identyfikatory:
+  - `wstaw_status`
+  - `status_kand`
+  - `kwalifikacja_koor`
+  - `Kwalifikacja_EMC`
+  - `Stan_wniosku_po_weryfikacji`
+
+Najbardziej prawdopodobny przebieg proceduralny:
+1. kandydat startuje z `statusfk = 1`
+2. Access otwiera dane pomocnicze:
+   - `Nadajnik`
+   - `maski`
+   - `charakterystyka`
+3. dla gałęzi problemowej / zagranicznej wywoływane jest:
+   - `obliczenia_EMC_POL_ZAGR`
+4. jeśli gałąź zagraniczna zwróci `status_fkand_zagr = 2`, to:
+   - `status_fkand = 2`
+5. jeśli wykryty jest problem kompatybilności (`TD > 1`), Access:
+   - dopisuje rekord do `problem_kons`
+   - oznacza `stat_koor`
+6. Access eksportuje payloady:
+   - `ExportTx_przeslo`
+   - `ExportRx_przeslo`
+   i wykonuje:
+   - `wpisz_dane_koor`
+   - `kwalifikacja_koor`
+   - `Kwalifikacja_EMC`
+   - `Stan_wniosku_po_weryfikacji`
+7. na końcu VBA aktualizuje `Czestotliwosc kandydujaca.status`
+8. warstwa raportowa konsumuje kandydaty z `Status = 2`
+
+Najważniejsze ograniczenie:
+- nadal nie mamy pełnego kodu VBA 1:1
+- ale już mamy wystarczająco mocne dowody, że:
+  - `Status = 1` jest stanem startowym/domyslnym
+  - `Status = 2` jest stanem promowanym proceduralnie i używanym dalej przez wydruk
 
 ## Najbardziej sensowny następny krok
 
