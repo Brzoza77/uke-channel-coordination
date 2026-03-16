@@ -87,6 +87,7 @@ def main() -> None:
         alignment = json.load(fh)
 
     grouped: dict[tuple[str, ...], list[dict[str, object]]] = defaultdict(list)
+    permit_grouped: dict[tuple[str, ...], list[dict[str, object]]] = defaultdict(list)
 
     for permit, payload in alignment["permits"].items():
         for row in payload["rows"]:
@@ -111,10 +112,21 @@ def main() -> None:
                     "best_subcase_delta_db": row.get("best_subcase_delta_db"),
                 }
             )
+            permit_grouped[(permit, *key)].append(
+                {
+                    "permit": permit,
+                    "channel": row.get("channel"),
+                    "polarization": row.get("polarization"),
+                    "uke_station": row.get("uke_station"),
+                    "best_subcase_key": row.get("best_subcase_key"),
+                    "best_subcase_delta_db": row.get("best_subcase_delta_db"),
+                }
+            )
 
     patterns: list[dict[str, object]] = []
     stable_rules: list[dict[str, object]] = []
     ambiguous_rules: list[dict[str, object]] = []
+    permit_stable_rules: list[dict[str, object]] = []
 
     for key, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
         counter = Counter(row["best_subcase_key"] for row in rows)
@@ -146,6 +158,37 @@ def main() -> None:
         elif total >= 3:
             ambiguous_rules.append(pattern_payload)
 
+    for key, rows in sorted(permit_grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+        permit = key[0]
+        pattern_key = key[1:]
+        counter = Counter(row["best_subcase_key"] for row in rows)
+        best_subcase, best_count = counter.most_common(1)[0]
+        total = len(rows)
+        confidence = best_count / total
+        avg_abs_delta = sum(abs(float(row["best_subcase_delta_db"] or 0.0)) for row in rows) / total
+        if total < 2 or confidence < 1.0:
+            continue
+        permit_stable_rules.append(
+            {
+                "permit": permit,
+                "pattern": {
+                    "direction": pattern_key[0],
+                    "section": pattern_key[1],
+                    "station_side": pattern_key[2],
+                    "row_request_side": pattern_key[3],
+                    "permit_site_a_request_side": pattern_key[4],
+                    "permit_site_b_request_side": pattern_key[5],
+                },
+                "row_count": total,
+                "best_subcase_counter": dict(counter),
+                "majority_subcase": best_subcase,
+                "majority_count": best_count,
+                "majority_share": round(confidence, 6),
+                "avg_abs_best_delta_db": round(avg_abs_delta, 6),
+                "sample_rows": rows[:5],
+            }
+        )
+
     payload = {
         "case": alignment.get("case"),
         "engine_version": alignment.get("engine_version"),
@@ -156,8 +199,10 @@ def main() -> None:
         "pattern_count": len(patterns),
         "stable_rule_count": len(stable_rules),
         "ambiguous_rule_count": len(ambiguous_rules),
+        "permit_stable_rule_count": len(permit_stable_rules),
         "stable_rules": stable_rules,
         "ambiguous_rules": ambiguous_rules,
+        "permit_stable_rules": permit_stable_rules,
         "patterns": patterns,
     }
 

@@ -174,8 +174,9 @@ def _station_aware_case_key(row: dict[str, str], conflict: ConflictAssessment) -
 
 def _load_mapping_rules(path: Optional[Path]) -> dict[str, list[dict[str, object]]]:
     if not path or not path.exists():
-        return {"exact": [], "family": []}
+        return {"permit_exact": [], "exact": [], "family": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
+    permit_exact_rules = list(payload.get("permit_stable_rules", []))
     exact_rules = list(payload.get("stable_rules", []))
     family_rules: list[dict[str, object]] = []
     for rule in payload.get("ambiguous_rules", []):
@@ -198,7 +199,7 @@ def _load_mapping_rules(path: Optional[Path]) -> dict[str, list[dict[str, object
                     "row_count": row_count,
                 }
             )
-    return {"exact": exact_rules, "family": family_rules}
+    return {"permit_exact": permit_exact_rules, "exact": exact_rules, "family": family_rules}
 
 
 def _mapped_case_key(
@@ -230,6 +231,13 @@ def _mapped_case_key(
         pattern["station_side"] = "site_a"
     elif _station_matches(row_station, details.get("site_b_station_label", "")):
         pattern["station_side"] = "site_b"
+
+    permit_number = row.get("uke_link_permit", "")
+    for rule in mapping_rules.get("permit_exact", []):
+        if rule.get("permit") != permit_number:
+            continue
+        if rule.get("pattern") == pattern:
+            return str(rule.get("majority_subcase") or "")
 
     for rule in mapping_rules.get("exact", []):
         if rule.get("pattern") == pattern:
