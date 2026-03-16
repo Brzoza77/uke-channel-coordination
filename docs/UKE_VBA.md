@@ -524,6 +524,50 @@ Wniosek:
 Raport:
 - `logs/access_margin_traces_20260316.json`
 
+## Wąski search `Recordset/Edit/Update` dla `fkand`
+
+Zawężone przeszukanie pod kątem:
+- `Recordset`
+- `FindFirst`
+- `NoMatch`
+- `.Edit`
+- `.Update`
+- `AddNew`
+- `Czestotliwosc kandydujaca`
+- `FKandydujaca#`
+
+dało ważne rozróżnienie.
+
+Potwierdzone proceduralne zapisy:
+1. `problem_kons`
+   - `filepk.AddNew`
+   - `filepk![FKandydujaca#] = fid`
+   - `filepk![TD p-gr] = td_o`
+   - `filepk.Update`
+
+2. warstwa `Dane_EMC` / mask nadajnika
+   - `wpis_maski file, maska, ilk, i`
+   - `file.Update`
+
+3. marker poszukiwanego etapu
+   - `aktualizacja parametr`
+   - `w fkand`
+   - `Czestotliwosc kandydujaca`
+   - `[FKandydujaca#] = ...`
+
+Ale nadal nie ma jawnie odzyskanego fragmentu w rodzaju:
+- `file![MargNad] = ...`
+- `file![MargOdb] = ...`
+- `file![N-nad] = ...`
+- `file![N-odb] = ...`
+
+Wniosek:
+- Access korzysta tu z DAO/Recordset w sąsiednich częściach workflow,
+- ale literalny setter marginów `fkand` nadal nie został odzyskany.
+
+Raport:
+- `logs/access_fkand_recordset_search_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

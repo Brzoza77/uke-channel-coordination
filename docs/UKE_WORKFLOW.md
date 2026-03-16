@@ -712,6 +712,24 @@ To sugeruje, że Access zapisuje te pola najpewniej przez:
 Raport:
 - `logs/access_margin_traces_20260316.json`
 
+Wąski search `Recordset/Edit/Update` wokół `fkand` dołożył jeszcze jedno ważne rozróżnienie:
+- odzyskane proceduralne zapisy przez `Recordset.Update` dotyczą dziś na pewno:
+  - `problem_kons`
+  - oraz warstwy `Dane_EMC` / mask nadajnika
+- ale nadal nie odsłoniły literalnego zapisu:
+  - `MargNad`
+  - `MargOdb`
+  - `N-nad`
+  - `N-odb`
+
+To wzmacnia wniosek, że setter marginów kandydata jest nadal ukryty:
+- albo w innej gałęzi `Recordset`
+- albo w krótkim dynamicznym SQL
+- albo w fragmencie VBA niewidocznym w obecnym `strings`
+
+Raport:
+- `logs/access_fkand_recordset_search_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
