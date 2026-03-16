@@ -540,6 +540,49 @@ Wniosek praktyczny:
 - następny najbardziej wartościowy reverse engineering powinien już iść w semantykę argumentów `wyniki_EMC_fk`
 - a nie w dalsze rozkładanie `utworz_wynik_zaklocen`, które wygląda na poboczny tor raportowania
 
+Obecnie najbardziej prawdopodobne mapowanie parametrów `wyniki_EMC_fk` jest takie:
+- `fid`
+  - `Wynik EMC-LR.[FKandydujaca_b#]`
+- `idprzesla`
+  - `Wynik EMC-LR.[Przęsło_i#]`
+- `metoda`
+  - `Wynik EMC-LR.metoda`
+- `blad`
+  - `Wynik EMC-LR.blad_obliczen`
+- `opis_bledu`
+  - `Wynik EMC-LR.opis_bledu`
+- `marg`
+  - pojedynczy margines kierunkowy zapisany do:
+    - `Margines_b-i`
+    - albo `Margines_i-b`
+- `dz`
+  - pojedyncza odległość kierunkowa zapisana do:
+    - `Odleglosc_b-i`
+    - albo `Odleglosc_i-b`
+- `wsk`
+  - najpewniej wybór strony zapisu `b-i` vs `i-b`
+
+Dodatkowe ślady z tej samej okolicy:
+- `sprz`
+- `TlumCyrk_NO`
+- `dd_n`
+- `dd_o`
+- `wsp_szum_i`
+- `moc_szumow`
+- `distance`
+
+To wygląda tak, jakby writer działał bezpośrednio na wyniku jednego kierunku pary, a nie na pełnym dwukierunkowym agregacie naraz.
+
+Ważne ograniczenie z danych `_349`:
+- w `75/85 GHz` wartości `TlumCyrk` są najczęściej bardzo małe:
+  - mediana `0.0 dB`
+  - `p90 = 0.5 dB`
+- więc `TlumCyrk` nadal jest elementem wejścia Accessa,
+- ale samodzielnie nie wyjaśnia już największych residuali benchmarku.
+
+Raport bieżącego stanu:
+- `logs/access_wyniki_emc_fk_semantics_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:

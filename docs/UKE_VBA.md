@@ -327,16 +327,73 @@ Wniosek:
   - gałęzie `metoda`
   - zachowanie przy brakach maski/nadajnika
 
+Najbardziej prawdopodobna semantyka parametrów:
+- `fid`
+  - odpowiada `Wynik EMC-LR.[FKandydujaca_b#]`
+- `idprzesla`
+  - odpowiada `Wynik EMC-LR.[Przęsło_i#]`
+- `metoda`
+  - odpowiada `Wynik EMC-LR.metoda`
+  - `metoda = 2` należy do gałęzi zagranicznej
+- `blad`
+  - odpowiada `Wynik EMC-LR.blad_obliczen`
+- `opis_bledu`
+  - odpowiada `Wynik EMC-LR.opis_bledu`
+- `marg`
+  - wygląda na pojedynczy kierunkowy margines zapisywany do:
+    - `Margines_b-i`
+    - albo `Margines_i-b`
+- `dz`
+  - wygląda na pojedynczą kierunkową odległość zapisywaną do:
+    - `Odleglosc_b-i`
+    - albo `Odleglosc_i-b`
+- `wsk`
+  - najpewniej wybiera stronę zapisu:
+    - `b-i`
+    - albo `i-b`
+- `sprz`
+  - wygląda na pomocniczą flagę relacji / sprzężenia używaną razem z `wsk`
+
+Dodatkowe ważne ślady z tego samego bloku:
+- obok writer-a pojawiają się:
+  - `TlumCyrk_NO`
+  - `dd_n`
+  - `dd_o`
+  - `wsp_szum_i`
+  - `moc_szumow`
+  - `distance`
+- przed wejściem w EMC Access buduje `SELECT` z:
+  - `PRZESLO.[Tłumienie cyrkulatorów-n] AS TlumCyrkN`
+  - `PRZESLO.[Moc nadajnika] AS Moc`
+  - współrzędnymi `xN/yN/xO/yO`
+  - kątami ekranu anten
+
+To wzmacnia wniosek, że `wyniki_EMC_fk` siedzi bezpośrednio przy właściwej warstwie obliczeniowej LR, a nie tylko przy raporcie.
+
+Wniosek praktyczny z aktualnej `_349`:
+- dla `75/85 GHz` wartości `TlumCyrk` są zwykle małe:
+  - mediana `0.0 dB`
+  - `p90 = 0.5 dB`
+  - najczęstsze mody:
+    - `75/85A250`: `0.0/0.0` i `0.5/0.5`
+    - `75/85A125`: prawie zawsze `0.0/0.0`
+    - `75/85A62.5`: głównie `0.5/0.5` lub `0.0/0.0`
+- to znaczy, że brak `TlumCyrk` nadal warto modelować dla zgodności z Accessem,
+- ale sam ten parametr nie tłumaczy już residuali rzędu kilku-kilkunastu dB na benchmarku.
+
+Aktualny raport tej warstwy:
+- `logs/access_wyniki_emc_fk_semantics_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
-- `wyniki_EMC_fk`
-- `utworz_wynik_zaklocen`
+- call site `wyniki_EMC_fk`
 - `Master`
 - `Zadania_LR`
 - `start`
 
 Bo tam najprawdopodobniej siedzi:
-- ustawianie `Status`
-- wybór finalnego kandydata
+- wybór strony `b-i` vs `i-b`
+- przypisanie `wsk`
 - spinanie `Wynik EMC-LR` z końcowym DOC
+- końcowe ustawianie `Status`
