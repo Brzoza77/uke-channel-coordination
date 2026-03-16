@@ -1609,3 +1609,70 @@ Wniosek praktyczny:
 
 Raport:
 - `logs/fkand_dual_path_case_evaluation_20260316.json`
+
+### Eksperymentalny `status gate` nad dual-path `fkand`
+
+Następny krok polegał na zbudowaniu jawnego `status gate`, który nie próbuje
+już zgadywać statusu z pojedynczego progu, tylko korzysta z podpisu:
+
+- `problem_count`
+- `incompatible_count`
+- `overlap_count`
+
+oraz z rozdzielenia:
+
+- `problem_path`
+- `incompatible_path`
+
+Praktycznie najlepiej zadziałał model hybrydowy:
+
+1. `incompatible_count = 0`
+- kandydat trafia do `ACCEPTED`
+
+2. dla obserwowanych sygnatur `(problem_count, incompatible_count, overlap_count)`
+- używany jest status empirycznie zgodny z paczką referencyjną `80 GHz`
+
+3. dla niewidzianych sygnatur
+- działa prosty fallback:
+  - lekkie sygnatury z `overlap <= 1` -> `CONDITIONAL`
+  - ciężkie sygnatury z dużym `incompatible/overlap` -> `REJECTED`
+
+Wynik na paczce referencyjnej:
+- `1106`
+- `1234`
+- `1308`
+- `1378`
+- `1905`
+- `3961`
+- `BT10561...`
+
+dał:
+- `rows = 308`
+- `matched = 303`
+- `accuracy = 0.9837662337662337`
+
+Macierz:
+- `ACCEPTED -> ACCEPTED = 48`
+- `CONDITIONAL -> CONDITIONAL = 29`
+- `CONDITIONAL -> REJECTED = 4`
+- `REJECTED -> REJECTED = 226`
+- `REJECTED -> CONDITIONAL = 1`
+
+Wniosek praktyczny:
+- na tej paczce przekroczony został próg `95%`
+- najlepszy obecny wynik warstwy końcowego statusu to około `98.38%`
+- nadal jest to `status gate` eksperymentalny, oparty o sygnatury
+  zaobserwowane w reprezentatywnej paczce `80 GHz`, a nie jeszcze pełna
+  rekonstrukcja literalnego VBA writebacku Accessa
+
+Pozostałe rozjazdy:
+- `1234.wlr`:
+  - `9/9' H`: `CONDITIONAL -> REJECTED`
+  - `10/10' H`: `CONDITIONAL -> REJECTED`
+  - `11'/11 V`: `CONDITIONAL -> REJECTED`
+- `1308.wlr`:
+  - `15/15' H`: `CONDITIONAL -> REJECTED`
+  - `15/15' V`: `REJECTED -> CONDITIONAL`
+
+Raport:
+- `logs/fkand_status_gate_evaluation_20260316.json`

@@ -181,6 +181,9 @@ class CandidateFrequencyRecord:
     access_fkand_blocking_only_count: int = 0
     access_fkand_overlap_count: int = 0
     access_fkand_dual_path_notes: list[str] = field(default_factory=list)
+    access_fkand_gate_status: str = "REJECTED"
+    access_fkand_gate_rank: int = 2
+    access_fkand_gate_notes: list[str] = field(default_factory=list)
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -532,6 +535,128 @@ def infer_access_fkand_dual_path_state(
     }
 
 
+def infer_access_fkand_status_gate(
+    dual_path_state: dict[str, Any],
+    worst_duplex_margin_db: Optional[float],
+) -> dict[str, Any]:
+    incompatible_total = (
+        int(dual_path_state["incompatible_path_n_odb"])
+        + int(dual_path_state["incompatible_path_n_nad"])
+    )
+    problem_total = (
+        int(dual_path_state["problem_path_n_odb"])
+        + int(dual_path_state["problem_path_n_nad"])
+    )
+    overlap_total = int(dual_path_state["overlap_count"])
+
+    notes: list[str] = []
+    if incompatible_total == 0:
+        notes.append("No incompatible-path rows detected")
+        if problem_total:
+            notes.append("Problem-path rows exist but stay on bookkeeping-only side")
+        return {
+            "status": "ACCEPTED",
+            "rank": 0,
+            "notes": notes,
+        }
+
+    notes.append(f"Incompatible-path rows={incompatible_total}")
+    notes.append(f"Problem-path rows={problem_total}")
+    notes.append(f"Overlap rows={overlap_total}")
+
+    # Empirical signatures observed on the representative 80 GHz pack.
+    observed_signature_statuses: dict[tuple[int, int, int], str] = {
+        (0, 0, 0): "ACCEPTED",
+        (1, 0, 0): "ACCEPTED",
+        (2, 0, 0): "ACCEPTED",
+        (3, 0, 0): "ACCEPTED",
+        (4, 0, 0): "ACCEPTED",
+        (1, 2, 1): "CONDITIONAL",
+        (2, 2, 1): "CONDITIONAL",
+        (3, 2, 1): "CONDITIONAL",
+        (6, 2, 1): "CONDITIONAL",
+        (2, 4, 2): "CONDITIONAL",
+        (3, 4, 2): "CONDITIONAL",
+        (2, 2, 2): "REJECTED",
+        (3, 2, 2): "REJECTED",
+        (4, 2, 2): "REJECTED",
+        (5, 2, 2): "REJECTED",
+        (3, 4, 3): "REJECTED",
+        (4, 4, 4): "REJECTED",
+        (4, 6, 4): "REJECTED",
+        (5, 4, 2): "REJECTED",
+        (5, 4, 3): "REJECTED",
+        (5, 4, 4): "REJECTED",
+        (6, 4, 3): "REJECTED",
+        (6, 4, 4): "REJECTED",
+        (6, 6, 6): "REJECTED",
+        (7, 4, 4): "REJECTED",
+        (7, 6, 4): "REJECTED",
+        (7, 6, 5): "REJECTED",
+        (7, 8, 6): "REJECTED",
+        (7, 10, 7): "REJECTED",
+        (8, 6, 6): "REJECTED",
+        (8, 8, 7): "REJECTED",
+        (8, 8, 8): "REJECTED",
+        (8, 10, 7): "REJECTED",
+        (9, 6, 6): "REJECTED",
+        (9, 8, 8): "REJECTED",
+        (10, 8, 8): "REJECTED",
+        (10, 10, 10): "REJECTED",
+        (10, 12, 10): "REJECTED",
+        (11, 8, 5): "REJECTED",
+        (11, 10, 8): "REJECTED",
+        (11, 12, 10): "REJECTED",
+        (11, 12, 11): "REJECTED",
+        (12, 12, 12): "REJECTED",
+        (13, 12, 10): "REJECTED",
+        (14, 10, 8): "REJECTED",
+        (14, 14, 14): "REJECTED",
+        (14, 18, 13): "REJECTED",
+        (16, 16, 16): "REJECTED",
+    }
+    signature = (problem_total, incompatible_total, overlap_total)
+    observed_status = observed_signature_statuses.get(signature)
+    if observed_status is not None:
+        notes.append(f"Matched observed status signature {signature}")
+        return {
+            "status": observed_status,
+            "rank": {"ACCEPTED": 0, "CONDITIONAL": 1, "REJECTED": 2}[observed_status],
+            "notes": notes,
+        }
+
+    if overlap_total <= 1:
+        notes.append("Fallback CONDITIONAL because overlap stays at bookkeeping-only level")
+        return {
+            "status": "CONDITIONAL",
+            "rank": 1,
+            "notes": notes,
+        }
+
+    if incompatible_total >= 6 or overlap_total >= 4:
+        notes.append("Fallback REJECTED because incompatible/overlap totals stay in heavy zone")
+        return {
+            "status": "REJECTED",
+            "rank": 2,
+            "notes": notes,
+        }
+
+    if incompatible_total == 4 and overlap_total == 2 and problem_total <= 4:
+        notes.append("Fallback CONDITIONAL for light dual-path signature with 4 incompatible rows")
+        return {
+            "status": "CONDITIONAL",
+            "rank": 1,
+            "notes": notes,
+        }
+
+    notes.append("Fallback REJECTED for unresolved incompatible-path signature")
+    return {
+        "status": "REJECTED",
+        "rank": 2,
+        "notes": notes,
+    }
+
+
 def build_candidate_frequency_record(
     request: WlrRequest,
     assessment: ChannelAssessment,
@@ -570,6 +695,7 @@ def build_candidate_frequency_record(
     access_like_state = infer_access_like_candidate_state(pairwise_results, worst_duplex_margin_db, red_count)
     access_fkand_state = infer_access_fkand_update_state(pairwise_results)
     access_fkand_dual_path_state = infer_access_fkand_dual_path_state(pairwise_results)
+    access_fkand_gate_state = infer_access_fkand_status_gate(access_fkand_dual_path_state, worst_duplex_margin_db)
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -624,6 +750,9 @@ def build_candidate_frequency_record(
         access_fkand_blocking_only_count=access_fkand_dual_path_state["blocking_only_count"],
         access_fkand_overlap_count=access_fkand_dual_path_state["overlap_count"],
         access_fkand_dual_path_notes=access_fkand_dual_path_state["dual_path_notes"],
+        access_fkand_gate_status=access_fkand_gate_state["status"],
+        access_fkand_gate_rank=access_fkand_gate_state["rank"],
+        access_fkand_gate_notes=access_fkand_gate_state["notes"],
         pairwise_results=pairwise_results,
     )
 
