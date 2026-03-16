@@ -22,7 +22,7 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-internal349-preselector-2026-03-15"
+ENGINE_VERSION = "hcm-access-querydef-alignment-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -41,7 +41,6 @@ DEFAULT_RECEIVER_NOISE_FIGURE_DB = 7.0
 SITE_MATCH_THRESHOLD_KM = 0.35
 PLAN_FREQ_TOLERANCE_GHZ = 0.25
 
-MAX_CHANNEL_DELTA_FACTOR = 1.5
 MAX_ACCEPTED_DEGRADATION_DB = 1.0
 MAX_CONDITIONAL_DEGRADATION_DB = 2.0
 MIN_ACCEPTED_CI_DB = 12.0
@@ -769,16 +768,32 @@ def candidate_matches_frequency_window(
     link: DuplexLink,
 ) -> bool:
     request_bw_mhz = request.channel_width_mhz or 1.0
-    link_bw_mhz = link.emission_ab.channel_width_mhz or request_bw_mhz
-    max_allowed_delta_mhz = max(request_bw_mhz, link_bw_mhz) * MAX_CHANNEL_DELTA_FACTOR
-
-    delta_ab = abs(candidate.freq_ab_ghz * 1000.0 - link.emission_ab.center_freq_mhz)
-    delta_ba = abs(candidate.freq_ba_ghz * 1000.0 - link.emission_ba.center_freq_mhz)
-    delta_cross_ab = abs(candidate.freq_ab_ghz * 1000.0 - link.emission_ba.center_freq_mhz)
-    delta_cross_ba = abs(candidate.freq_ba_ghz * 1000.0 - link.emission_ab.center_freq_mhz)
-
-    effective_delta = min(delta_ab, delta_ba, delta_cross_ab, delta_cross_ba)
-    if effective_delta > max_allowed_delta_mhz:
+    overlap_pairs = [
+        (
+            candidate.freq_ab_ghz * 1000.0,
+            link.emission_ab.center_freq_mhz,
+            link.emission_ab.channel_width_mhz or request_bw_mhz,
+        ),
+        (
+            candidate.freq_ba_ghz * 1000.0,
+            link.emission_ba.center_freq_mhz,
+            link.emission_ba.channel_width_mhz or request_bw_mhz,
+        ),
+        (
+            candidate.freq_ab_ghz * 1000.0,
+            link.emission_ba.center_freq_mhz,
+            link.emission_ba.channel_width_mhz or request_bw_mhz,
+        ),
+        (
+            candidate.freq_ba_ghz * 1000.0,
+            link.emission_ab.center_freq_mhz,
+            link.emission_ab.channel_width_mhz or request_bw_mhz,
+        ),
+    ]
+    if not any(
+        (abs(link_freq_mhz - candidate_freq_mhz) - 1e-8) <= ((link_bw_mhz + request_bw_mhz) * 0.5)
+        for candidate_freq_mhz, link_freq_mhz, link_bw_mhz in overlap_pairs
+    ):
         return False
 
     endpoint_distances = _endpoint_distances_km(request, link)
@@ -794,36 +809,49 @@ def candidate_matches_frequency_window(
 
 
 def generate_channel_candidates(request: WlrRequest, plan: FrequencyPlan) -> list[ChannelCandidate]:
-    lower = {ch.channel_index: ch for ch in plan.channels if ch.subband in {"lower", "single"} and not ch.is_prime}
-    upper = {ch.channel_index: ch for ch in plan.channels if ch.subband in {"upper", "single"} or ch.is_prime}
     candidates: list[ChannelCandidate] = []
 
     if plan.has_prime_channels:
-        common_indexes = sorted(set(lower.keys()) & set(upper.keys()))
-        for idx in common_indexes:
-            ch_low = lower[idx]
-            ch_up = upper[idx]
+        lower_by_number = {
+            ch.channel_number: ch
+            for ch in plan.channels
+            if ch.subband in {"lower", "single"}
+        }
+        upper_by_number = {
+            ch.channel_number: ch
+            for ch in plan.channels
+            if ch.subband in {"upper", "single"} or ch.is_prime
+        }
+
+        def _append_if_pair_exists(channel_ab: str, channel_ba: str, polarization: str) -> None:
+            ch_ab = lower_by_number.get(channel_ab) or upper_by_number.get(channel_ab)
+            ch_ba = lower_by_number.get(channel_ba) or upper_by_number.get(channel_ba)
+            if ch_ab is None or ch_ba is None:
+                return
+            candidates.append(
+                ChannelCandidate(
+                    plan_symbol=plan.symbol,
+                    channel_ab=ch_ab.channel_number,
+                    channel_ba=ch_ba.channel_number,
+                    freq_ab_ghz=ch_ab.center_freq_ghz,
+                    freq_ba_ghz=ch_ba.center_freq_ghz,
+                    polarization=polarization,
+                )
+            )
+
+        base_channels = sorted(
+            {
+                ch.channel_number.rstrip("'")
+                for ch in plan.channels
+                if ch.channel_number
+            },
+            key=lambda value: (int(value) if value.isdigit() else value),
+        )
+        for base_channel in base_channels:
+            prime_channel = f"{base_channel}'"
             for polarization in ("V", "H"):
-                candidates.append(
-                    ChannelCandidate(
-                        plan_symbol=plan.symbol,
-                        channel_ab=ch_low.channel_number,
-                        channel_ba=ch_up.channel_number,
-                        freq_ab_ghz=ch_low.center_freq_ghz,
-                        freq_ba_ghz=ch_up.center_freq_ghz,
-                        polarization=polarization,
-                    )
-                )
-                candidates.append(
-                    ChannelCandidate(
-                        plan_symbol=plan.symbol,
-                        channel_ab=ch_up.channel_number,
-                        channel_ba=ch_low.channel_number,
-                        freq_ab_ghz=ch_up.center_freq_ghz,
-                        freq_ba_ghz=ch_low.center_freq_ghz,
-                        polarization=polarization,
-                    )
-                )
+                _append_if_pair_exists(base_channel, prime_channel, polarization)
+                _append_if_pair_exists(prime_channel, base_channel, polarization)
     else:
         singles = sorted(plan.channels, key=lambda ch: (ch.channel_index, ch.center_freq_ghz))
         for ch in singles:
