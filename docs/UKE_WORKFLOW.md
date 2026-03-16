@@ -383,6 +383,35 @@ Praktycznie:
   - `Wynik EMC-LR` jako warstwy obliczeniowej
   - `Status` jako warstwy organizacji / wydruku / wyboru kandydata
 
+### Gdzie najpewniej ustawiany jest `Status = 2`
+
+Najważniejszy artefakt:
+- `logs/access_status_assignment_20260316.json`
+
+Potwierdzone:
+- `Wyniki_do_wydruku` konsumuje `Status = 2`
+- `Wyniki do wydruku_tab4` czyta te same kandydaty bez tego filtra
+- w zapisanych `QueryDef` nie udało się znaleźć jednoznacznej kwerendy typu:
+  - `UPDATE Czestotliwosc kandydujaca SET Status = 2`
+
+Wniosek:
+- samo ustawienie `Status = 2` najprawdopodobniej nie siedzi w widocznych kwerendach `SELECT`
+- najbardziej prawdopodobne miejsce tej logiki to:
+  - moduły VBA
+    - `Zadania_LR`
+    - `Zadania_LR_Tlumienie`
+    - `Master`
+  - albo makra:
+    - `start`
+    - `autoexec`
+
+Praktycznie:
+- `Status = 2` traktujemy na dziś jako flagę wyboru kandydata do końcowej ścieżki raportowej
+- ale nie zakładamy jeszcze, że oznacza on bezpośrednio:
+  - `ACCEPTED`
+  - `best`
+  - lub inną etykietę użytkową
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
