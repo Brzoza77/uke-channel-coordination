@@ -222,19 +222,23 @@ Najważniejsze twarde ślady z `MDB`:
   - `Stan_wniosku_po_weryfikacji`
 
 Najbardziej prawdopodobny przebieg proceduralny:
-1. kandydat startuje z `statusfk = 1`
-2. Access otwiera dane pomocnicze:
+1. podczas tworzenia kandydata Access ustawia roboczy znacznik:
+   - `DobryKanal = "0"`
+2. kandydat wchodzi do przebiegu proceduralnego z `statusfk = 1`
+3. Access otwiera dane pomocnicze:
    - `Nadajnik`
    - `maski`
    - `charakterystyka`
-3. dla gałęzi problemowej / zagranicznej wywoływane jest:
+4. dla gałęzi problemowej / zagranicznej wywoływane jest:
    - `obliczenia_EMC_POL_ZAGR`
-4. jeśli gałąź zagraniczna zwróci `status_fkand_zagr = 2`, to:
+5. jeśli gałąź zagraniczna zwróci `status_fkand_zagr = 2`, to:
    - `status_fkand = 2`
-5. jeśli wykryty jest problem kompatybilności (`TD > 1`), Access:
+6. jeśli wykryty jest problem kompatybilności (`TD > 1`), Access:
    - dopisuje rekord do `problem_kons`
    - oznacza `stat_koor`
-6. Access eksportuje payloady:
+7. równolegle utrzymuje osobny stan problemu:
+   - `Problem.decyzja_o_koordynacji = IIf([d11] > [dgr], 1, 2)`
+8. Access eksportuje payloady:
    - `ExportTx_przeslo`
    - `ExportRx_przeslo`
    i wykonuje:
@@ -242,14 +246,15 @@ Najbardziej prawdopodobny przebieg proceduralny:
    - `kwalifikacja_koor`
    - `Kwalifikacja_EMC`
    - `Stan_wniosku_po_weryfikacji`
-7. na końcu VBA aktualizuje `Czestotliwosc kandydujaca.status`
-8. warstwa raportowa konsumuje kandydaty z `Status = 2`
+9. na końcu VBA aktualizuje `Czestotliwosc kandydujaca.status`
+10. warstwa raportowa konsumuje kandydaty z `Status = 2`
 
 Najważniejsze ograniczenie:
 - nadal nie mamy pełnego kodu VBA 1:1
 - ale już mamy wystarczająco mocne dowody, że:
   - `Status = 1` jest stanem startowym/domyslnym
   - `Status = 2` jest stanem promowanym proceduralnie i używanym dalej przez wydruk
+  - `DobryKanal` i `Problem.decyzja_o_koordynacji` wyglądają na osobne stany pomocnicze, a nie synonimy końcowego `Status`
 
 ## Najbardziej sensowny następny krok
 

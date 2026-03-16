@@ -459,24 +459,29 @@ Najmocniejsze ślady z `MDB`:
   - `Stan_wniosku_po_weryfikacji`
 
 Najbardziej prawdopodobny przebieg:
-1. Access inicjalizuje kandydata jako `statusfk = 1`.
-2. Dla gałęzi problemowej / zagranicznej wywołuje `obliczenia_EMC_POL_ZAGR`.
-3. Jeżeli `status_fkand_zagr = 2`, to kandydat lokalny dostaje promocję:
+1. Podczas tworzenia kandydatów Access ustawia pomocniczy znacznik:
+   - `DobryKanal = "0"`
+2. Access inicjalizuje kandydata proceduralnego jako `statusfk = 1`.
+3. Dla gałęzi problemowej / zagranicznej wywołuje `obliczenia_EMC_POL_ZAGR`.
+4. Jeżeli `status_fkand_zagr = 2`, to kandydat lokalny dostaje promocję:
    - `status_fkand = 2`
-4. Jeżeli występuje problem kompatybilności (`TD > 1`), Access:
+5. Jeżeli występuje problem kompatybilności (`TD > 1`), Access:
    - zapisuje rekord `problem_kons`
    - oznacza `stat_koor`
-5. Access zapisuje dane koordynacyjne i wykonuje:
+6. Osobno utrzymuje stan problemu:
+   - `Problem.decyzja_o_koordynacji = IIf([d11] > [dgr], 1, 2)`
+7. Access zapisuje dane koordynacyjne i wykonuje:
    - `wpisz_dane_koor`
    - `kwalifikacja_koor`
    - `Kwalifikacja_EMC`
    - `Stan_wniosku_po_weryfikacji`
-6. Na końcu procedura VBA wykonuje `UPDATE` rekordu w `Czestotliwosc kandydujaca`.
-7. Warstwa `Wyniki_do_wydruku` bierze już tylko kandydaty z `Status = 2`.
+8. Na końcu procedura VBA wykonuje `UPDATE` rekordu w `Czestotliwosc kandydujaca`.
+9. Warstwa `Wyniki_do_wydruku` bierze już tylko kandydaty z `Status = 2`.
 
 Najuczciwszy stan wiedzy:
 - `Status = 1` wygląda na stan startowy / domyślny
 - `Status = 2` wygląda na stan promowany proceduralnie i używany przez końcową ścieżkę raportową
+- `DobryKanal` i `Problem.decyzja_o_koordynacji` wyglądają na oddzielne stany pomocnicze
 - nadal nie jest jeszcze odtworzona pełna semantyka wszystkich możliwych kodów statusu
 
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.

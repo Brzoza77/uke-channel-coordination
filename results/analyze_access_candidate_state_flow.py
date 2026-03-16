@@ -15,6 +15,20 @@ def main() -> int:
         'evidence_blocks': [
             {
                 'source': 'strings(LR_Konsultacja_349.mdb)',
+                'lines': '596872-596879',
+                'raw': [
+                    'Set db = DBEngine.Workspaces(0).Databases(0)',
+                    'Plan zakresu',
+                    'Wybierz plan zakresu',
+                    'par1',
+                    'par2',
+                    'DobryKanal = "0"',
+                    'utworzenie fkand',
+                ],
+                'meaning': 'Before EMC and final status updates, Access appears to initialize a separate candidate goodness flag (DobryKanal) while creating candidate rows.',
+            },
+            {
+                'source': 'strings(LR_Konsultacja_349.mdb)',
                 'lines': '598632-598636',
                 'raw': [
                     'pom = DLookup("[problem#]", "Problem_kons", "[przeslo#]=" & idp)',
@@ -24,6 +38,18 @@ def main() -> int:
                     ' If blad > 0 Then Koniec_obliczen dbb, fid(i), status_fkand: Exit Function',
                 ],
                 'meaning': 'Foreign/problem branch can promote the candidate from default status to status 2 and terminate early on fatal error.',
+            },
+            {
+                'source': 'strings(LR_Konsultacja_349.mdb)',
+                'lines': '598641-598654',
+                'raw': [
+                    'SELECT Problem.[Przeslo#], Problem.[TD p-p], Problem.decyzja_o_koordynacji',
+                    'WHERE Problem.[TD p-p] > 1',
+                    'UPDATE Problem SET Problem.decyzja_o_koordynacji = IIf([d11] > [dgr],1,2)',
+                    'SELECT Problem.[Przeslo#], Problem.decyzja_o_koordynacji',
+                    'WHERE Problem.decyzja_o_koordynacji = 1',
+                ],
+                'meaning': 'Access keeps a separate coordination-decision state inside Problem, distinct from the final candidate status in Czestotliwosc kandydujaca.',
             },
             {
                 'source': 'strings(LR_Konsultacja_349.mdb)',
@@ -95,7 +121,7 @@ def main() -> int:
         'reconstructed_flow': [
             {
                 'step': 1,
-                'description': 'Candidate workflow initializes with statusfk = 1.',
+                'description': 'Candidate creation initializes a separate goodness flag (DobryKanal = "0"), then the procedural status pipeline initializes statusfk = 1.',
             },
             {
                 'step': 2,
@@ -103,7 +129,7 @@ def main() -> int:
             },
             {
                 'step': 3,
-                'description': 'When a country/problem conflict is found, Access writes a problem_kons record and marks stat_koor via Mid(stat_koor, 2, 1) = "B".',
+                'description': 'When a country/problem conflict is found, Access writes a problem_kons record, marks stat_koor via Mid(stat_koor, 2, 1) = "B", and maintains a separate Problem.decyzja_o_koordynacji state derived from D11 versus Dgr.',
             },
             {
                 'step': 4,
@@ -128,12 +154,14 @@ def main() -> int:
                 'The final value depends on at least: problem detection, foreign-branch EMC, coordination payload generation, qualification, and end-of-flow verification.',
                 'The procedural flow has two visible status phases: default initialization to 1 and later promotion/update to 2 for report-selected candidates.',
                 'Access couples candidate status updates with data-quality checks for antenna characteristics and with coordination/problem bookkeeping.',
+                'Access tracks more than one kind of state: a pre-EMC candidate flag (DobryKanal), problem-level coordination decisions, and the final candidate Status written back to Czestotliwosc kandydujaca.',
             ],
             'not_yet_proven': [
                 'Exact semantic meaning of each status code beyond the evidence for 1 as initial/default and 2 as promoted/report-selected.',
                 'Whether a pure domestic terrestrial branch can also promote statusfk to 2 independently of the foreign branch.',
                 'Exact implementation of Koniec_obliczen and Stan_wniosku_po_weryfikacji.',
                 'Whether wstaw_status is the sole writer of candidate status or only one helper used by a larger routine.',
+                'Whether DobryKanal is later promoted from 0 to 1 and, if so, whether that promotion feeds directly into final Status.',
             ],
         },
     }
