@@ -477,9 +477,6 @@
     const maxTd = Math.max(Number(chartSection.max_td_db || 0), Number(chartSection.threshold_db || 1), 1);
     const thresholdDb = Number(chartSection.threshold_db || 1);
     const thresholdPct = Math.max(0, Math.min(100, (thresholdDb / maxTd) * 100));
-    const trackHeightPx = 240;
-    const labelZonePx = 88;
-    const thresholdBottomPx = labelZonePx + (thresholdPct / 100) * trackHeightPx;
     const overThresholdCount = chartSection.items.filter((item) => Number(item.td_max_db || 0) > thresholdDb).length;
 
     channelChartStateEl.classList.remove("muted", "success", "error");
@@ -525,10 +522,16 @@
         <div class="channel-chart-meta">Skala do ${escapeHtml(maxTd.toFixed(1))} dB</div>
       </div>
       <div class="channel-chart-plot">
-        <div class="channel-chart-threshold" style="bottom:${thresholdBottomPx.toFixed(2)}px">
-          <span>Próg ${escapeHtml(thresholdDb.toFixed(1))} dB</span>
+        <div class="channel-chart-scroll">
+          <div class="channel-chart-stage">
+            <div class="channel-chart-threshold-layer">
+              <div class="channel-chart-threshold" style="bottom:${thresholdPct.toFixed(2)}%">
+                <span>Próg ${escapeHtml(thresholdDb.toFixed(1))} dB</span>
+              </div>
+            </div>
+            <div class="channel-chart-bars">${barsHtml}</div>
+          </div>
         </div>
-        <div class="channel-chart-bars">${barsHtml}</div>
       </div>
     `;
   }
