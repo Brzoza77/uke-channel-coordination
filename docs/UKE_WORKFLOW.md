@@ -1345,3 +1345,72 @@ Wniosek praktyczny:
 
 Raport:
 - `logs/fkand_pattern_scan_20260316.json`
+
+### Skan wieloprzypadkowy `80 GHz`
+
+Na reprezentatywnej paczce trudnych przypadków:
+- `1106`
+- `1234`
+- `1308`
+- `1378`
+- `1905`
+- `3961`
+- benchmark `BT10561...`
+
+wynik jest już inny niż na samym benchmarku `BT10561...`.
+
+Podsumowanie:
+- `cases_scanned = 7`
+- `cases_with_mismatch = 7`
+- `total_mismatch_rows = 728`
+
+To znaczy:
+- różnica między:
+  - `problem`
+  - `blocking`
+  - `red`
+  nie jest lokalnym wyjątkiem całego `80 GHz`
+- benchmark `BT10561...` był po prostu bardzo czystym i wąskim wycinkiem
+
+Najczęstsze klasy rozjazdu:
+- `problem = true`, `blocking = false`, `red = false`
+  - głównie:
+    - `adjacent`
+    - `geometry`
+    - `overlap_ratio = 0.0`
+    - `shared_site` lub `external`
+- `problem = false`, `blocking = true`, `red = true/false`
+  - głównie:
+    - `cochannel`
+    - `overlap_ratio = 1.0`
+    - `external` lub `shared_site`
+
+Najmocniejsze wzorce:
+- `A->B adjacent shared_site problem=true blocking=false red=false`
+  - `68` wierszy
+- `B->A geometry shared_site problem=true blocking=false red=false`
+  - `66` wierszy
+- `B->A adjacent external problem=true blocking=false red=false`
+  - `63` wiersze
+- `A->B cochannel external problem=false blocking=true red=true`
+  - `60` wierszy
+
+Praktyczny wniosek:
+- nie wolno już utożsamiać globalnie:
+  - `problem rows`
+  z
+  - `blocking/red rows`
+- benchmark `BT10561...` nadal jest ważny,
+  ale nie wystarcza do uogólnienia semantyki `fkand` na całe `80 GHz`
+
+To porządkuje nam dalszą pracę:
+- `fkand` najpewniej agreguje własną, bardziej specyficzną warstwę
+  proceduralną Accessa
+- a nasze obecne etykiety:
+  - `_pairwise_result_is_problem`
+  - `is_blocking`
+  - `risk_level == red`
+  są tylko przybliżeniami różnych fragmentów tego workflow
+
+Raport:
+- `logs/fkand_pattern_multicase_scan_20260316.json`
