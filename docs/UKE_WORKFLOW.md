@@ -412,6 +412,37 @@ Praktycznie:
   - `best`
   - lub inną etykietę użytkową
 
+### Twardy ślad VBA aktualizującego kandydatów
+
+Najważniejszy artefakt:
+- `logs/access_vba_status_traces_20260316.json`
+
+W surowych stringach `LR_Konsultacja_349.mdb` udało się potwierdzić ślady VBA:
+
+- `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [Czestotliwosc kandydujaca].[status] = ... WHERE ((([Czestotliwosc kandydujaca].[FKandydujaca#])= ...`
+- `strpyt = "UPDATE [Czestotliwosc kandydujaca] SET [Czestotliwosc kandydujaca].T_dane_koor = Null, [Czestotliwosc kandydujaca].R_dane_koor = Null WHERE ((([Czestotliwosc kandydujaca].[FKandydujaca#])=" & fid & "));"`
+- `Sub wyniki_EMC_fk(db, fid As Long, marg As Variant, dz As Double, idprzesla As Long, wsk As Byte, metoda As Byte, blad As Long, opis_bledu As String)`
+- `Set dbb = CurrentDb`
+- użycie `QueryDef`, `OpenRecordset`, `CurrentProject.Path`, `Zadania_LR`
+
+Ważny kontekst:
+- ślad `UPDATE ... status = ...` pojawia się obok kodu związanego z:
+  - doborem charakterystyki anteny
+  - `kod_polaryzacji`
+  - obsługą błędów typu:
+    - brak charakterystyki
+    - za mała liczba punktów na charakterystyce
+
+Wniosek:
+- `Status` kandydata jest aktywnie ustawiany przez kod proceduralny VBA
+- ścieżka końcowa Accessa wygląda więc bardziej tak:
+  - wygeneruj kandydatów
+  - przygotuj payloady EMC
+  - sprawdź warunki pomocnicze i charakterystyki
+  - uruchom EMC / zapisz `Wynik EMC-LR`
+  - zaktualizuj rekord `Czestotliwosc kandydujaca`
+  - wybierz do raportu kandydaty z `Status = 2`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
