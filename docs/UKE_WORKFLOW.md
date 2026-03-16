@@ -1152,6 +1152,47 @@ Czyli:
 Raport:
 - `logs/access_pairwise_to_fkand_transition_20260316.json`
 
+### Agregacja `Marg_n/Marg_o` do `fkand`
+
+To już jest jeden z najbardziej użytecznych elementów całego reverse
+engineeringu.
+
+W jednym bloku symboli VBA siedzą razem:
+- `jest_wynikN`
+- `jest_wynikO`
+- `Marg_n`
+- `Marg_o`
+- `MargNad`
+- `MargOdb`
+- `N-nad`
+- `N-odb`
+- `statusfk`
+- lokalne stany `stan*`
+
+W połączeniu z relacją:
+- `wyniki_EMC_prz(Marg_n)`
+- `wyniki_EMC_prz(Marg_o)`
+- `aktualizacja parametr w fkand`
+
+najbardziej prawdopodobny model wygląda tak:
+1. Access liczy surowe gałęzie `Marg_n/Marg_o`
+2. zapisuje je przez `wyniki_EMC_prz`
+3. agreguje je do pól kandydata:
+   - `MargNad`
+   - `MargOdb`
+   - `N-nad`
+   - `N-odb`
+   - `jest_wynikN/O`
+4. dopiero wtedy aktualizuje `fkand`
+5. dopiero później uruchamia końcową logikę `Status`
+
+Czyli:
+- `fkand` nie jest tylko kopią jednego wyniku parowego
+- jest zagregowanym stanem obu gałęzi `N/O`
+
+Raport:
+- `logs/access_fkand_aggregation_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

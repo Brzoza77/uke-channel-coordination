@@ -975,6 +975,59 @@ propagacją stanu do kandydata.
 Raport:
 - `logs/access_pairwise_to_fkand_transition_20260316.json`
 
+## Agregacja `Marg_n/Marg_o` do stanu kandydata
+
+Po połączeniu bloku symboli VBA z przejściem `wyniki_EMC_prz -> fkand` mamy już
+dość klarowny model agregacji.
+
+Najważniejsze markery w jednym bloku:
+- `jest_wynikN`
+- `jest_wynikO`
+- `Marg_n`
+- `Marg_o`
+- `MargNad`
+- `MargOdb`
+- `N-nad`
+- `N-odb`
+- `statusfk`
+- `stanp`
+- `stan_problem`
+- `stanprz`
+- `stanprzesla`
+
+Najważniejsza interpretacja:
+- `Marg_n` / `Marg_o`
+  - wyglądają na surowe, parowe metryki gałęzi
+- `MargNad` / `MargOdb`
+  - wyglądają na zagregowane metryki poziomu kandydata
+- `N-nad` / `N-odb`
+  - wyglądają na zagregowane liczniki / tally poziomu kandydata
+- `jest_wynikN/O`
+  - wyglądają na flagi istnienia poprawnego wyniku w danej gałęzi
+
+W połączeniu z relacją:
+- `wyniki_EMC_prz(Marg_n)`
+- `wyniki_EMC_prz(Marg_o)`
+- `aktualizacja parametr w fkand`
+
+oznacza to najprawdopodobniej:
+1. Access liczy surowe wyniki gałęzi `N/O`
+2. zapisuje je przez `wyniki_EMC_prz`
+3. agreguje je do:
+   - `MargNad`
+   - `MargOdb`
+   - `N-nad`
+   - `N-odb`
+   - `jest_wynikN/O`
+4. dopiero wtedy aktualizuje stan kandydata
+5. i dopiero później wchodzi w tor końcowego `Status`
+
+To jest dziś najmocniejszy odzyskany model tego, co Access przechowuje w
+`fkand` przed końcową selekcją do wydruku.
+
+Raport:
+- `logs/access_fkand_aggregation_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
