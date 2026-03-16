@@ -15,7 +15,6 @@ data/uke_source/
 
 *.mdb
 *.rar
-*.xlsx
 *.doc
 *.docx
 *.pdf

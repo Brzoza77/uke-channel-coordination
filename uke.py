@@ -5,14 +5,11 @@ from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional, Callable
-import os
 import re
 import pickle
 import sqlite3
 
 import subprocess
-
-from openpyxl import load_workbook
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -305,17 +302,6 @@ class CacheEnvelope:
 _COORD_RE = re.compile(
     r"^\s*(\d+)([NSEW])([0-9]{1,2})'(\d{1,2}(?:[\.,]\d+)?)''\s*$"
 )
-
-
-def discover_latest_xlsx(base_dir: Path = BASE_DIR) -> Path:
-    candidates = sorted(
-        [p for p in base_dir.glob("*.xlsx") if not p.name.startswith("~$")],
-        key=lambda p: (p.stat().st_mtime_ns, p.name),
-        reverse=True,
-    )
-    if not candidates:
-        raise FileNotFoundError(f"Brak pliku .xlsx w katalogu {base_dir}")
-    return candidates[0]
 
 
 def parse_uke_coord(value: Any) -> float:
@@ -1333,43 +1319,6 @@ def row_to_record(
     )
 
 
-def load_dataset_from_xlsx(path: Path) -> PermissionDataset:
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook[workbook.sheetnames[0]]
-    rows = sheet.iter_rows(values_only=True)
-    headers = list(next(rows))
-
-    records: list[PermitRecord] = []
-    for excel_row_index, row in enumerate(rows, start=2):
-        if not any(cell is not None and str(cell).strip() for cell in row):
-            continue
-
-        row_data = normalize_row(headers, row)
-        try:
-            record = row_to_record(
-                row_data=row_data,
-                source_filename=path.name,
-                source_sheet=sheet.title,
-            )
-        except Exception as exc:
-            lp_value = row_data.get("lp")
-            raise ValueError(
-                f"Błąd parsowania XLSX w wierszu Excel={excel_row_index}, L.p.={lp_value!r}: {exc}"
-            ) from exc
-        records.append(record)
-
-    stat = path.stat()
-    source = SourceFileInfo(
-        filename=path.name,
-        full_path=str(path),
-        file_size_bytes=stat.st_size,
-        modified_at=datetime.fromtimestamp(stat.st_mtime),
-        sheet_name=sheet.title,
-        rows_count=len(records),
-    )
-    return PermissionDataset(source=source, records=records)
-
-
 def _internal_catalog_query() -> str:
     return """
     SELECT
@@ -1641,31 +1590,13 @@ def _save_cache_to_disk(envelope: CacheEnvelope) -> None:
 
 
 def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
-    if internal_catalog_available():
-        source_path = INTERNAL_SQLITE_PATH
-        stat = source_path.stat()
-
-        if not force_reload:
-            cached = _load_cache_from_disk()
-            if cached is not None:
-                if (
-                    cached.source_path == str(source_path)
-                    and cached.source_mtime_ns == stat.st_mtime_ns
-                    and cached.source_size == stat.st_size
-                ):
-                    return cached.dataset
-
-        dataset = load_dataset_from_internal_sqlite(source_path)
-        envelope = CacheEnvelope(
-            source_path=str(source_path),
-            source_mtime_ns=stat.st_mtime_ns,
-            source_size=stat.st_size,
-            dataset=dataset,
+    if not internal_catalog_available():
+        raise FileNotFoundError(
+            f"Brak gotowej bazy SQLite UKE w {INTERNAL_SQLITE_PATH}. "
+            "Najpierw uruchom ./refresh_uke_sqlite.sh"
         )
-        _save_cache_to_disk(envelope)
-        return dataset
 
-    source_path = discover_latest_xlsx()
+    source_path = INTERNAL_SQLITE_PATH
     stat = source_path.stat()
 
     if not force_reload:
@@ -1678,7 +1609,7 @@ def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
             ):
                 return cached.dataset
 
-    dataset = load_dataset_from_xlsx(source_path)
+    dataset = load_dataset_from_internal_sqlite(source_path)
     envelope = CacheEnvelope(
         source_path=str(source_path),
         source_mtime_ns=stat.st_mtime_ns,
@@ -1691,29 +1622,24 @@ def get_permissions_dataset(force_reload: bool = False) -> PermissionDataset:
 
 
 def get_source_summary() -> dict[str, Any]:
-    if internal_catalog_available():
-        stat = INTERNAL_SQLITE_PATH.stat()
-        with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
-            cur = con.cursor()
-            rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
-        return {
-            "source_kind": "sqlite",
-            "filename": INTERNAL_SQLITE_PATH.name,
-            "full_path": str(INTERNAL_SQLITE_PATH),
-            "rows_count": rows_count,
-            "sheet_name": "LR_Konsultacja_349",
-            "file_size_bytes": stat.st_size,
-            "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
-        }
-    dataset = get_permissions_dataset()
+    if not internal_catalog_available():
+        raise FileNotFoundError(
+            f"Brak gotowej bazy SQLite UKE w {INTERNAL_SQLITE_PATH}. "
+            "Najpierw uruchom ./refresh_uke_sqlite.sh"
+        )
+
+    stat = INTERNAL_SQLITE_PATH.stat()
+    with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
+        cur = con.cursor()
+        rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
     return {
-        "source_kind": "xlsx",
-        "filename": dataset.source.filename,
-        "full_path": dataset.source.full_path,
-        "rows_count": dataset.source.rows_count,
-        "sheet_name": dataset.source.sheet_name,
-        "file_size_bytes": dataset.source.file_size_bytes,
-        "modified_at": dataset.source.modified_at.isoformat(timespec="seconds"),
+        "source_kind": "sqlite",
+        "filename": INTERNAL_SQLITE_PATH.name,
+        "full_path": str(INTERNAL_SQLITE_PATH),
+        "rows_count": rows_count,
+        "sheet_name": "LR_Konsultacja_349",
+        "file_size_bytes": stat.st_size,
+        "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
     }
 
 
@@ -1756,21 +1682,6 @@ def get_pairing_summary() -> dict[str, Any]:
         "paired_records_count": report.paired_records_count,
         "orphan_records_count": report.orphan_records_count,
     }
-
-
-def install_uploaded_xlsx(uploaded_file: Path, *, replace_existing: bool = False) -> Path:
-    uploaded_file = Path(uploaded_file)
-    if uploaded_file.suffix.lower() != ".xlsx":
-        raise ValueError("Dozwolony jest wyłącznie plik .xlsx")
-
-    target = BASE_DIR / uploaded_file.name
-    if target.exists() and not replace_existing:
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target = BASE_DIR / f"{uploaded_file.stem}_{stamp}{uploaded_file.suffix}"
-
-    os.replace(uploaded_file, target)
-    get_permissions_dataset(force_reload=True)
-    return target
 
 
 if __name__ == "__main__":

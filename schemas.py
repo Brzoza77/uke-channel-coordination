@@ -13,7 +13,7 @@ class HealthResponse(BaseModel):
 
 class SourceSummaryResponse(BaseModel):
     engine_version: str
-    source_kind: Literal["sqlite", "xlsx"]
+    source_kind: Literal["sqlite"]
     plan_source_kind: Optional[str] = None
     filename: str
     full_path: str

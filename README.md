@@ -21,6 +21,12 @@ Podstawowym źródłem danych jest teraz:
 
 czyli lokalna `SQLite` budowana z publikacji `MDB` UKE.
 
+Runtime aplikacji nie korzysta już z dawnych wejść `XLSX` ani `RTF`.
+Obowiązujący model danych to wyłącznie:
+
+- `MDB -> SQLite`
+- `WLR -> analiza -> PDF/UI`
+
 ## Instalacja
 
 ### 1. Sklonuj repo
@@ -75,7 +81,6 @@ Runtime aplikacji:
 - `fastapi==0.92.0`
 - `uvicorn==0.17.6`
 - `pydantic==1.10.22`
-- `openpyxl==3.0.9`
 - `reportlab==3.6.12`
 - `python-multipart==0.0.5`
 
