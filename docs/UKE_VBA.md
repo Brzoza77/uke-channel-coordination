@@ -384,6 +384,28 @@ Wniosek praktyczny z aktualnej `_349`:
 Aktualny raport tej warstwy:
 - `logs/access_wyniki_emc_fk_semantics_20260316.json`
 
+Nowy twardy ślad call site:
+- `wyniki_EMC_prz db, filen![przeslo#], Marg_n, dz, file![Przęsło#], 1, 1, blad, "", "POL"`
+- `wyniki_EMC_prz db, filen![przeslo#], Marg_o, Dzi, file![Przęsło#], 2, 1, blad, "", "POL"`
+
+Wniosek:
+- `wsk` nie jest już tylko hipotezą:
+  - `wsk = 1` dla gałęzi `Marg_n / dz`
+  - `wsk = 2` dla gałęzi `Marg_o / Dzi`
+- `metoda = 1` jest krajowym writer path
+- `wyniki_EMC_prz` wygląda na cienki wrapper nad tym samym modelem zapisu, który na poziomie kandydatów realizuje `wyniki_EMC_fk`
+
+Wciąż otwarte pozostaje:
+- czy `Marg_n` mapuje się na:
+  - `Margines_b-i`
+  - czy `Margines_i-b`
+- i analogicznie:
+  - `dz`
+  - vs `Dzi`
+
+Raport call site:
+- `logs/access_writer_callsite_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

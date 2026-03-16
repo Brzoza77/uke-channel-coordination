@@ -583,6 +583,22 @@ Ważne ograniczenie z danych `_349`:
 Raport bieżącego stanu:
 - `logs/access_wyniki_emc_fk_semantics_20260316.json`
 
+Nowy mocny ślad z call site wrappera:
+- `wyniki_EMC_prz db, filen![przeslo#], Marg_n, dz, file![Przęsło#], 1, 1, blad, "", "POL"`
+- `wyniki_EMC_prz db, filen![przeslo#], Marg_o, Dzi, file![Przęsło#], 2, 1, blad, "", "POL"`
+
+To pozwala już powiedzieć konkretniej:
+- `wsk = 1` dla gałęzi `Marg_n / dz`
+- `wsk = 2` dla gałęzi `Marg_o / Dzi`
+- `metoda = 1` to krajowy writer path
+
+Otwarte pytanie zostało zawężone do:
+- `Marg_n / dz -> b-i` czy `i-b`
+- `Marg_o / Dzi -> i-b` czy `b-i`
+
+Raport tej warstwy:
+- `logs/access_writer_callsite_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
