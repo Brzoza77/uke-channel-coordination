@@ -155,6 +155,8 @@ class CandidateFrequencyRecord:
     access_like_problem_decision: Optional[int] = None
     access_like_problem_decision_1_count: int = 0
     access_like_problem_decision_2_count: int = 0
+    access_like_qualification_state: str = "FAILED"
+    access_like_qualification_rank: int = 2
     access_like_status_seed: int = 1
     access_like_status_code: int = 1
     access_like_status_label: str = "PENDING"
@@ -337,10 +339,25 @@ def infer_access_like_candidate_state(
         dobry_kanal_value = "0"
         notes.append("DobryKanal remains 0 because a pair requires hard rejection")
 
+    accepted_margin_ok = worst_duplex_margin_db is None or worst_duplex_margin_db >= 0.0
+    conditional_margin_ok = worst_duplex_margin_db is None or worst_duplex_margin_db >= -3.0
+    if problem_decision == 2 or red_count > 0:
+        qualification_state = "FAILED"
+        qualification_rank = 2
+        notes.append("Qualification failed due to hard problem decision or RED pair")
+    elif problem_decision == 1 or not accepted_margin_ok:
+        qualification_state = "COORDINATION_REQUIRED"
+        qualification_rank = 1
+        notes.append("Qualification requires coordination / conditional acceptance path")
+    else:
+        qualification_state = "QUALIFIED"
+        qualification_rank = 0
+        notes.append("Qualification passed without conditional problem state")
+
     selected_for_report = (
-        problem_decision != 2
-        and red_count == 0
-        and (worst_duplex_margin_db is None or worst_duplex_margin_db >= -3.0)
+        qualification_state != "FAILED"
+        and dobry_kanal_value == "1"
+        and conditional_margin_ok
     )
     status_code = 2 if selected_for_report else 1
     status_label = "SELECTED" if status_code == 2 else "PENDING"
@@ -353,6 +370,8 @@ def infer_access_like_candidate_state(
         "problem_decision": problem_decision,
         "problem_decision_1_count": decision_1_count,
         "problem_decision_2_count": decision_2_count,
+        "qualification_state": qualification_state,
+        "qualification_rank": qualification_rank,
         "status_seed": 1,
         "status_code": status_code,
         "status_label": status_label,
@@ -425,6 +444,8 @@ def build_candidate_frequency_record(
         access_like_problem_decision=access_like_state["problem_decision"],
         access_like_problem_decision_1_count=access_like_state["problem_decision_1_count"],
         access_like_problem_decision_2_count=access_like_state["problem_decision_2_count"],
+        access_like_qualification_state=access_like_state["qualification_state"],
+        access_like_qualification_rank=access_like_state["qualification_rank"],
         access_like_status_seed=access_like_state["status_seed"],
         access_like_status_code=access_like_state["status_code"],
         access_like_status_label=access_like_state["status_label"],
@@ -531,6 +552,7 @@ def _candidate_record_access_like_sort_key(
     problem_decision_rank = 0 if record.access_like_problem_decision in (None, 1) else 1
     return (
         0 if record.access_like_status_code == 2 else 1,
+        record.access_like_qualification_rank,
         problem_decision_rank,
         orientation,
         record.access_like_problem_decision_2_count,
