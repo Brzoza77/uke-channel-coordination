@@ -612,6 +612,70 @@ Wniosek:
 Raport:
 - `logs/access_dao_object_map_20260316.json`
 
+## Systemowe tabele Accessa i blok końcowy kandydata
+
+Dało się wejść głębiej w systemowe tabele Accessa, jeśli ich prawdziwe `Id`
+zostaną pobrane z `MSysObjects` i dopisane do katalogu parsera.
+
+Najważniejsze ustalenia:
+- `MSysObjects` trzyma stabilne `Id` dla modułów VBA i makr:
+  - moduły:
+    - `Aktualizacja_bazy`
+    - `Master`
+    - `Zadania_LR`
+    - `Zadania_LR_Tlumienie`
+    - `koordynacja_zagr`
+    - itd.
+  - makra:
+    - `autoexec`
+    - `start`
+    - `klepsydra_nie`
+    - `Uaktualnienie bazy`
+- `MSysNavPaneObjectIDs` potwierdza te same identyfikatory obiektów:
+  - moduły jako `Type = 32775`
+  - makra jako `Type = 32770`
+- `MSysAccessObjects` da się sparsować po dopisaniu właściwego `Id`,
+  ale na obecnym poziomie parsera:
+  - `row_count = 141`
+  - `nonempty_data_rows = 0`
+  - więc nie daje jeszcze bezpośredniego payloadu z kodem VBA
+
+To oznacza:
+- systemowe tabele są realnym źródłem mapowania obiektów Accessa,
+- ale nie są dziś prostą drogą do odzyskania pełnych ciał modułów.
+
+Równolegle dało się jeszcze lepiej uporządkować blok końcowy procedury
+kandydata. Najmocniej potwierdzone markery to:
+- `statusfk = 1`
+- `aktualizacja parametr`
+- `w fkand`
+- `Czestotliwosc kandydujaca`
+- `filepk.Update`
+- `ExportTx_przeslo`
+- `ExportRx_przeslo`
+- `wpisz_dane_koor`
+- `kwalifikacja_koor`
+- `Kwalifikacja_EMC`
+- `Stan_wniosku_po_weryfikacji`
+- `wstaw_status`
+- `status_kand`
+
+Najbardziej prawdopodobny przebieg tej warstwy wygląda teraz tak:
+1. zapis `problem_kons`
+2. eksport `Tx/Rx`
+3. `wpisz_dane_koor`
+4. `kwalifikacja_koor`
+5. `Kwalifikacja_EMC`
+6. `Stan_wniosku_po_weryfikacji`
+7. końcowa promocja stanu przez `wstaw_status` / `status_kand`
+
+To nie daje jeszcze literalnego settera `MargNad/MargOdb`, ale wyraźnie
+pokazuje, że końcowa promocja kandydata dzieje się po warstwie weryfikacji,
+a nie w samym writerze wyników parowych.
+
+Raport:
+- `logs/access_system_tables_and_state_flow_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

@@ -863,6 +863,60 @@ Najbardziej sensowna kolejność:
 3. Przełączyć decyzję kanału na model marginesowy
 4. Dopiero potem wrócić do terenu i horyzontu
 
+## Dalszy reverse engineering Accessa
+
+Po wejściu w systemowe tabele Accessa i końcowy blok proceduralny widać już
+kilka rzeczy dość jasno.
+
+### Systemowe obiekty
+
+- `MSysObjects` trzyma właściwe `Id` dla modułów VBA i makr:
+  - moduły: `Master`, `Zadania_LR`, `Zadania_LR_Tlumienie`, `koordynacja_zagr`, itd.
+  - makra: `autoexec`, `start`, `klepsydra_nie`, `Uaktualnienie bazy`
+- `MSysNavPaneObjectIDs` potwierdza te same obiekty:
+  - moduły jako `Type = 32775`
+  - makra jako `Type = 32770`
+- `MSysAccessObjects` da się już sparsować po wstrzyknięciu prawidłowego `Id`
+  z `MSysObjects`, ale na obecnym poziomie parsera:
+  - tabela ma `141` rekordów
+  - `Data` wychodzi puste dla wszystkich rekordów
+
+Wniosek:
+- systemowe tabele pomagają nam mapować obiekty i ich `Id`,
+- ale nie odsłoniły jeszcze pełnych ciał modułów VBA.
+
+### Najmocniejszy blok końcowy kandydata
+
+Najbardziej spójny proceduralny łańcuch, który dziś widzimy w stringach `MDB`,
+to:
+
+1. `statusfk = 1`
+2. `aktualizacja parametr`
+3. `w fkand`
+4. `Czestotliwosc kandydujaca`
+5. `filepk.Update`
+6. `ExportTx_przeslo`
+7. `ExportRx_przeslo`
+8. `wpisz_dane_koor`
+9. `kwalifikacja_koor`
+10. `Kwalifikacja_EMC`
+11. `Stan_wniosku_po_weryfikacji`
+12. `wstaw_status`
+13. `status_kand`
+
+To sugeruje bardzo konkretny przebieg:
+- zapis problemów do `problem_kons`
+- przygotowanie payloadów EMC
+- kwalifikacja i weryfikacja
+- dopiero potem końcowe ustawienie stanu kandydata
+
+Czyli:
+- finalny status kandydata nie jest częścią samego write path `Wynik EMC-LR`
+- tylko leży w późniejszej warstwie po `Stan_wniosku_po_weryfikacji`
+
+Raport:
+- `logs/access_system_tables_and_state_flow_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych
