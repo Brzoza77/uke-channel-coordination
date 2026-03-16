@@ -48,6 +48,18 @@ DEFAULT_WORKFLOW_TABLES = [
     "KONSTRUKCJA",
     "ZASTOSOWANA ANTENA",
     "Adresy",
+    "SYGNAL",
+    "RODZAJE MODULACJI",
+    "FIDER",
+    "Plan zakresu",
+    "ZAKRES",
+    "Przesla do modyfikacji",
+    "SPRAWA",
+    "OSOBA",
+    "Stan_przesla_tabela",
+    "SIEC",
+    "STACJA_NS",
+    "ANTENA_sat",
 ]
 
 

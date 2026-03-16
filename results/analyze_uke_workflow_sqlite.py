@@ -19,6 +19,18 @@ WORKFLOW_TABLES = [
     "nadajnik_kons",
     "charakterystyka_kons",
     "homologacja_kons",
+    "sygnal",
+    "rodzaje_modulacji",
+    "fider",
+    "plan_zakresu",
+    "zakres",
+    "przesla_do_modyfikacji",
+    "sprawa",
+    "osoba",
+    "stan_przesla_tabela",
+    "siec",
+    "stacja_ns",
+    "antena_sat",
 ]
 
 
@@ -35,7 +47,10 @@ def find_target_table(conn: sqlite3.Connection, source_db: str, source_table: st
 
 
 def row_count(conn: sqlite3.Connection, table_name: str) -> int:
-    row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+    try:
+        row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+    except sqlite3.OperationalError:
+        return 0
     return int(row[0]) if row else 0
 
 

@@ -1439,6 +1439,12 @@ def _get_internal_duplex_links_window_cached(
 ) -> tuple[DuplexLink, ...]:
     query = _internal_catalog_query() + """
     WHERE p.czestotliwosc_przydzielona BETWEEN ? AND ?
+      AND p.status NOT IN (10, 13, 14)
+      AND p.stan > 3
+      AND k_n.szer_geo IS NOT NULL
+      AND k_n.dlug_geo IS NOT NULL
+      AND k_o.szer_geo IS NOT NULL
+      AND k_o.dlug_geo IS NOT NULL
     """
     params: list[Any] = [
         min_freq_ghz - 0.25,
