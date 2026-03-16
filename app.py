@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import re
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -20,6 +21,8 @@ from schemas import (
     AnalyzeRequestSummary,
     AnalyzeResponse,
     AnalyzeSummary,
+    ChannelInterferenceBar,
+    ChannelInterferenceChart,
     ChannelRecommendation,
     ConflictItem,
     HealthResponse,
@@ -72,6 +75,8 @@ def api_source() -> SourceSummaryResponse:
 
     return SourceSummaryResponse(
         engine_version=ENGINE_VERSION,
+        source_kind=source["source_kind"],
+        plan_source_kind=plans.get("primary_source_format"),
         filename=source["filename"],
         full_path=source["full_path"],
         rows_count=source["rows_count"],
@@ -494,6 +499,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         best_polarization=best_assessment.candidate.polarization if best_assessment else None,
         best_score=best_record.score if best_record else (best_assessment.score if best_assessment else None),
     )
+    channel_chart = _build_channel_chart(candidate_frequency_records, parsed_request)
 
     debug = {
         "bbox": {
@@ -700,6 +706,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             "features": MapFeatureCollection(type="FeatureCollection", features=map_features),
         },
         summary=summary,
+        channel_chart=channel_chart,
         recommendations=recommendations,
         conflicts=conflicts,
         debug=debug,
@@ -729,6 +736,78 @@ def _access_like_record_sort_key(record) -> tuple:
         record.channel_ab,
         record.channel_ba,
         record.polarization,
+    )
+
+
+def _channel_sort_key(channel_value: str) -> tuple[int, int, str]:
+    match = re.match(r"^(\d+)(.*)$", str(channel_value or "").strip())
+    if not match:
+        return (10_000, 10_000, str(channel_value))
+    number = int(match.group(1))
+    suffix = match.group(2)
+    prime_rank = suffix.count("'")
+    return (number, prime_rank, suffix)
+
+
+def _build_channel_chart(candidate_frequency_records, parsed_request) -> ChannelInterferenceChart:
+    items: list[ChannelInterferenceBar] = []
+    threshold_db = 1.0
+
+    for record in sorted(
+        candidate_frequency_records,
+        key=lambda item: (
+            _channel_sort_key(item.channel_ab),
+            _channel_sort_key(item.channel_ba),
+            item.polarization,
+        ),
+    ):
+        td_ab_values = [
+            result.degradation_db
+            for result in record.pairwise_results
+            if result.direction == "A->B" and result.degradation_db is not None
+        ]
+        td_ba_values = [
+            result.degradation_db
+            for result in record.pairwise_results
+            if result.direction == "B->A" and result.degradation_db is not None
+        ]
+        td_max_ab_db = max(td_ab_values) if td_ab_values else 0.0
+        td_max_ba_db = max(td_ba_values) if td_ba_values else 0.0
+        td_max_db = max(td_max_ab_db, td_max_ba_db)
+        over_threshold_pair_count = sum(
+            1
+            for result in record.pairwise_results
+            if result.degradation_db is not None and result.degradation_db > threshold_db
+        )
+
+        items.append(
+            ChannelInterferenceBar(
+                label=f"{record.channel_ab}/{record.channel_ba} {record.polarization}",
+                channel_ab=record.channel_ab,
+                channel_ba=record.channel_ba,
+                polarization=record.polarization,
+                status=record.status,
+                gate_status=record.access_fkand_gate_status,
+                requested=(
+                    record.channel_ab == parsed_request.channel_ab
+                    and record.channel_ba == parsed_request.channel_ba
+                    and record.polarization == parsed_request.requested_polarization
+                ),
+                td_max_db=td_max_db,
+                td_max_ab_db=td_max_ab_db,
+                td_max_ba_db=td_max_ba_db,
+                over_threshold_pair_count=over_threshold_pair_count,
+                pairwise_results_count=len(record.pairwise_results),
+                red_pair_count=record.pairwise_red_count,
+                blocking_pair_count=record.pairwise_blocking_count,
+            )
+        )
+
+    max_td_db = max((item.td_max_db for item in items), default=0.0)
+    return ChannelInterferenceChart(
+        threshold_db=threshold_db,
+        max_td_db=max_td_db,
+        items=items,
     )
 
 

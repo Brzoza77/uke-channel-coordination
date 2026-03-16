@@ -13,6 +13,8 @@ class HealthResponse(BaseModel):
 
 class SourceSummaryResponse(BaseModel):
     engine_version: str
+    source_kind: Literal["sqlite", "xlsx"]
+    plan_source_kind: Optional[str] = None
     filename: str
     full_path: str
     rows_count: int
@@ -163,10 +165,34 @@ class AnalyzeSummary(BaseModel):
     best_score: Optional[float] = None
 
 
+class ChannelInterferenceBar(BaseModel):
+    label: str
+    channel_ab: str
+    channel_ba: str
+    polarization: Literal["H", "V"]
+    status: str
+    gate_status: Optional[str] = None
+    requested: bool = False
+    td_max_db: float = 0.0
+    td_max_ab_db: float = 0.0
+    td_max_ba_db: float = 0.0
+    over_threshold_pair_count: int = 0
+    pairwise_results_count: int = 0
+    red_pair_count: int = 0
+    blocking_pair_count: int = 0
+
+
+class ChannelInterferenceChart(BaseModel):
+    threshold_db: float = 1.0
+    max_td_db: float = 0.0
+    items: list[ChannelInterferenceBar] = Field(default_factory=list)
+
+
 class AnalyzeResponse(BaseModel):
     request: AnalyzeRequestSummary
     map: AnalyzeMapSection
     summary: AnalyzeSummary
+    channel_chart: ChannelInterferenceChart = Field(default_factory=ChannelInterferenceChart)
     recommendations: list[ChannelRecommendation] = Field(default_factory=list)
     conflicts: list[ConflictItem] = Field(default_factory=list)
     debug: dict[str, Any] = Field(default_factory=dict)

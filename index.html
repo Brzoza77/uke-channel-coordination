@@ -12,7 +12,7 @@
     <header class="page-header">
       <div>
         <h1>UKE Channel Coordination</h1>
-        <p class="subtitle">Dashboard źródeł, upload WLR i podgląd wyników analizy.</p>
+        <p class="subtitle">Koordynacja WLR na wewnętrznym katalogu UKE `_349/sqlite`, z podglądem kanałów, konfliktów i degradacji w całym badanym paśmie.</p>
       </div>
       <div class="status-pill" id="healthStatus">API: nieznany</div>
     </header>
@@ -20,7 +20,7 @@
     <main class="layout-grid">
       <section class="panel panel-wide" aria-labelledby="sourceSectionTitle">
         <div class="panel-header">
-          <h2 id="sourceSectionTitle">Aktywne źródło danych</h2>
+          <h2 id="sourceSectionTitle">Aktywne źródło UKE</h2>
           <button type="button" id="refreshSourceBtn">Odśwież</button>
         </div>
         <div id="sourceSummary" class="kv-grid">
@@ -100,6 +100,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="channelChartSectionTitle">
+        <div class="panel-header">
+          <h2 id="channelChartSectionTitle">Zakłócenia w badanym paśmie</h2>
+        </div>
+        <div id="channelChartState" class="message-box muted">
+          Brak danych do wykresu.
+        </div>
+        <div id="channelChart" class="channel-chart-empty">
+          Uruchom analizę, aby zobaczyć słupki degradacji `TDmax` dla każdego kanału oraz próg `1 dB`.
         </div>
       </section>
 

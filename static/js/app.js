@@ -12,6 +12,8 @@
   const debugBoxEl = document.getElementById("debugBox");
   const recommendationsStateEl = document.getElementById("recommendationsState");
   const recommendationsTableBodyEl = document.querySelector("#recommendationsTable tbody");
+  const channelChartStateEl = document.getElementById("channelChartState");
+  const channelChartEl = document.getElementById("channelChart");
   const conflictsTableBodyEl = document.querySelector("#conflictsTable tbody");
   const mapContainerEl = document.getElementById("map");
 
@@ -81,19 +83,20 @@
 
   function renderSourceSummary(source) {
     const engineVersion = (source && source.engine_version) || currentEngineVersion || "-";
+    const sourceKind = source?.source_kind || "sqlite";
+    const planSourceKind = source?.plan_source_kind || "sqlite";
     const items = [
       ["Wersja silnika", engineVersion],
-      ["Plik XLSX", source.filename],
+      [sourceKind === "sqlite" ? "Baza UKE" : "Plik źródłowy", source.filename],
       ["Ścieżka", source.full_path],
-      ["Arkusz", source.sheet_name],
-      ["Wiersze", source.rows_count],
-      ["Rozmiar [B]", source.file_size_bytes],
-      ["Modyfikacja", source.modified_at],
+      [sourceKind === "sqlite" ? "Tabela główna" : "Arkusz", source.sheet_name],
+      ["Rekordy / przęsła", source.rows_count],
       ["Łącza duplex", source.duplex_links],
       ["Sparowane rekordy", source.paired_records_count],
-      ["Sieroty", source.orphan_records_count],
-      ["Plany", source.plans_count],
-      ["Pliki planów", source.plan_files_count]
+      ["Rekordy osierocone", source.orphan_records_count],
+      ["Plany kanałowe", `${source.plans_count} (${planSourceKind})`],
+      ["Rozmiar [B]", source.file_size_bytes],
+      ["Modyfikacja", source.modified_at]
     ];
 
     sourceSummaryEl.innerHTML = items.map(([key, value]) => `
@@ -457,6 +460,76 @@
     }).join("");
   }
 
+  function renderChannelChart(chartSection) {
+    if (!channelChartStateEl || !channelChartEl) {
+      return;
+    }
+
+    if (!chartSection || !Array.isArray(chartSection.items) || chartSection.items.length === 0) {
+      channelChartStateEl.classList.remove("success", "error");
+      channelChartStateEl.classList.add("muted");
+      channelChartStateEl.textContent = "Brak danych do wykresu.";
+      channelChartEl.className = "channel-chart-empty";
+      channelChartEl.textContent = "Uruchom analizę, aby zobaczyć słupki degradacji TDmax dla każdego kanału.";
+      return;
+    }
+
+    const maxTd = Math.max(Number(chartSection.max_td_db || 0), Number(chartSection.threshold_db || 1), 1);
+    const thresholdDb = Number(chartSection.threshold_db || 1);
+    const thresholdPct = Math.max(0, Math.min(100, (thresholdDb / maxTd) * 100));
+    const overThresholdCount = chartSection.items.filter((item) => Number(item.td_max_db || 0) > thresholdDb).length;
+
+    channelChartStateEl.classList.remove("muted", "success", "error");
+    channelChartStateEl.classList.add(overThresholdCount > 0 ? "error" : "success");
+    channelChartStateEl.textContent = `Kanały w paśmie: ${chartSection.items.length}. Kanały z degradacją TDmax > ${thresholdDb.toFixed(1)} dB: ${overThresholdCount}.`;
+
+    const barsHtml = chartSection.items.map((item) => {
+      const tdMax = Number(item.td_max_db || 0);
+      const barPct = Math.max(0, Math.min(100, (tdMax / maxTd) * 100));
+      const classes = [
+        "channel-bar",
+        `is-${String(item.status || "unknown").toLowerCase()}`,
+        item.requested ? "is-requested" : "",
+      ].filter(Boolean).join(" ");
+      const tooltip = [
+        `${item.label}`,
+        `Status: ${item.status}`,
+        item.gate_status ? `Access gate: ${item.gate_status}` : null,
+        `TDmax: ${tdMax.toFixed(2)} dB`,
+        `TD A→B: ${Number(item.td_max_ab_db || 0).toFixed(2)} dB`,
+        `TD B→A: ${Number(item.td_max_ba_db || 0).toFixed(2)} dB`,
+        `Wyniki > 1 dB: ${item.over_threshold_pair_count}/${item.pairwise_results_count}`,
+        `RED: ${item.red_pair_count}`,
+        `Blocking: ${item.blocking_pair_count}`,
+        item.requested ? "Kanał żądany" : null,
+      ].filter(Boolean).join("\n");
+
+      return `
+        <div class="${classes}" title="${escapeHtml(tooltip)}">
+          <div class="channel-bar-value">${escapeHtml(tdMax.toFixed(1))}</div>
+          <div class="channel-bar-track">
+            <div class="channel-bar-fill" style="height:${barPct.toFixed(2)}%"></div>
+          </div>
+          <div class="channel-bar-label">${escapeHtml(item.label)}</div>
+        </div>
+      `;
+    }).join("");
+
+    channelChartEl.className = "channel-chart";
+    channelChartEl.innerHTML = `
+      <div class="channel-chart-header">
+        <div class="channel-chart-meta">Metryka: najgorsza degradacja TDmax dla kanału</div>
+        <div class="channel-chart-meta">Skala do ${escapeHtml(maxTd.toFixed(1))} dB</div>
+      </div>
+      <div class="channel-chart-plot">
+        <div class="channel-chart-threshold" style="bottom:${thresholdPct.toFixed(2)}%">
+          <span>Próg ${escapeHtml(thresholdDb.toFixed(1))} dB</span>
+        </div>
+        <div class="channel-chart-bars">${barsHtml}</div>
+      </div>
+    `;
+  }
+
   function renderConflicts(conflicts) {
     if (!conflicts || conflicts.length === 0) {
       conflictsTableBodyEl.innerHTML = `
@@ -551,6 +624,7 @@
         upload_id: payload.upload_id
       });
       renderRecommendations([], null);
+      renderChannelChart(null);
       renderConflicts([]);
       clearMapLayers();
       currentAnalysisRequest = null;
@@ -590,6 +664,7 @@
 
       renderRequestSummary(payload.request || { upload_id: uploadId });
       renderRecommendations(payload.recommendations || [], payload.summary || null);
+      renderChannelChart(payload.channel_chart || null);
       renderConflicts(payload.conflicts || []);
       renderMap(payload.map);
       addRecentEntry({
@@ -613,6 +688,7 @@
       setReportButtonState(false, "Pobierz PDF");
       setUploadMessage(`Błąd analizy: ${error.message}`, "error");
       setDebug("POST /api/analyze ERROR", error.message);
+      renderChannelChart(null);
     } finally {
       setAnalyzeButtonState(true, "Analizuj WLR");
     }
@@ -662,6 +738,7 @@
       renderRequestSummary(null);
       renderRecentEntries();
       renderRecommendations([]);
+      renderChannelChart(null);
       renderConflicts([]);
       setReportButtonState(false, "Pobierz PDF");
       await loadHealth();

@@ -1246,12 +1246,15 @@ def get_plan_dataset(force_reload: bool = False) -> PlanDataset:
 
 def get_plan_summary() -> dict[str, Any]:
     dataset = get_plan_dataset()
+    source_formats = sorted({plan.source_format for plan in dataset.plans.values() if plan.source_format})
     return {
         "plans_count": len(dataset.plans),
         "loaded_files_count": len(dataset.loaded_files),
         "loaded_files": dataset.loaded_files,
         "loaded_at": dataset.loaded_at.isoformat(timespec="seconds"),
         "symbols": sorted(dataset.plans.keys()),
+        "source_formats": source_formats,
+        "primary_source_format": source_formats[0] if len(source_formats) == 1 else ",".join(source_formats),
     }
 
 
@@ -1694,6 +1697,7 @@ def get_source_summary() -> dict[str, Any]:
             cur = con.cursor()
             rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
         return {
+            "source_kind": "sqlite",
             "filename": INTERNAL_SQLITE_PATH.name,
             "full_path": str(INTERNAL_SQLITE_PATH),
             "rows_count": rows_count,
@@ -1703,6 +1707,7 @@ def get_source_summary() -> dict[str, Any]:
         }
     dataset = get_permissions_dataset()
     return {
+        "source_kind": "xlsx",
         "filename": dataset.source.filename,
         "full_path": dataset.source.full_path,
         "rows_count": dataset.source.rows_count,
