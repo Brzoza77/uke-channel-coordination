@@ -287,7 +287,7 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         )
 
     conflicts: list[ConflictItem] = []
-    reason_assessments = conditional_assessments + rejected_assessments if not accepted_assessments else []
+    reason_assessments = conditional_assessments + rejected_assessments
     for assessment in reason_assessments[:20]:
         rejection_reasons = list(getattr(assessment, "rejection_reasons", []))
         primary_reason = "; ".join(rejection_reasons[:3]) if rejection_reasons else assessment.best_explanation
