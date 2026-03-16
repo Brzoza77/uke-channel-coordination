@@ -192,6 +192,16 @@ class DuplexLink:
         return self.emission_ab.polarization or self.emission_ba.polarization
 
 
+@dataclass(frozen=True)
+class RadioProfile:
+    radio_id: int
+    radio_type: Optional[str]
+    radio_vendor: Optional[str]
+    rx_noise_figure_db: Optional[float]
+    atpc_attenuation_db: Optional[float]
+    receiver_bandwidth_mhz: Optional[float]
+    is_verified: bool
+
 
 @dataclass(frozen=True)
 class PlanChannel:
@@ -335,6 +345,14 @@ def clean_text(value: Any) -> Optional[str]:
     return text or None
 
 
+def normalize_lookup_text(value: Any) -> str:
+    text = clean_text(value)
+    if text is None:
+        return ""
+    normalized = re.sub(r"[^0-9a-z]+", " ", text.lower())
+    return " ".join(normalized.split())
+
+
 def internal_catalog_available(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> bool:
     if not sqlite_path.exists():
         return False
@@ -355,6 +373,130 @@ def compute_internal_eirp_dbm(
     if tx_power_dbm is None and tx_antenna_gain_dbi is None:
         return None
     return (tx_power_dbm or 0.0) + (tx_antenna_gain_dbi or 0.0) - (tx_circulator_loss_db or 0.0)
+
+
+@lru_cache(maxsize=1)
+def _load_internal_radio_profiles(sqlite_path_str: str = str(INTERNAL_SQLITE_PATH)) -> tuple[RadioProfile, ...]:
+    sqlite_path = Path(sqlite_path_str)
+    if not sqlite_path.exists():
+        return ()
+    query = """
+    SELECT
+        n.nadajnik_id,
+        n.typ_nadajnika,
+        prod.nazwa_producenta AS radio_vendor,
+        n.wsp_szum_w AS rx_noise_figure_db,
+        n.atpc AS atpc_attenuation_db,
+        n.szer_pasma_odb AS receiver_bandwidth_mhz,
+        COALESCE(n.poprawna, 0) AS is_verified
+    FROM lr_konsultacja_349__nadajnik n
+    LEFT JOIN lr_konsultacja_349__producent prod
+      ON prod.producent_id = n.producent_id
+    """
+    with sqlite3.connect(sqlite_path) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(query).fetchall()
+    return tuple(
+        RadioProfile(
+            radio_id=int(row["nadajnik_id"]),
+            radio_type=clean_text(row["typ_nadajnika"]),
+            radio_vendor=clean_text(row["radio_vendor"]),
+            rx_noise_figure_db=row["rx_noise_figure_db"],
+            atpc_attenuation_db=row["atpc_attenuation_db"],
+            receiver_bandwidth_mhz=row["receiver_bandwidth_mhz"],
+            is_verified=bool(row["is_verified"]),
+        )
+        for row in rows
+    )
+
+
+def _band_hints_from_freqs(freqs_ghz: tuple[float, ...]) -> set[str]:
+    valid = [freq for freq in freqs_ghz if freq is not None]
+    if not valid:
+        return set()
+    min_freq = min(valid)
+    max_freq = max(valid)
+    if min_freq >= 70.0:
+        return {"80", "70 80"}
+    if 37.0 <= max_freq <= 39.5:
+        return {"38"}
+    if 22.0 <= max_freq <= 24.5:
+        return {"23"}
+    if 17.0 <= max_freq <= 19.5:
+        return {"18"}
+    if 12.0 <= max_freq <= 14.5:
+        return {"13"}
+    if 10.0 <= max_freq <= 12.5:
+        return {"11"}
+    if 6.0 <= max_freq <= 8.5:
+        return {"7"}
+    return set()
+
+
+def lookup_internal_radio_profile(
+    radio_type: Optional[str],
+    radio_vendor: Optional[str],
+    freqs_ghz: tuple[Optional[float], ...] = (),
+    channel_width_mhz: Optional[float] = None,
+    sqlite_path: Path = INTERNAL_SQLITE_PATH,
+) -> Optional[RadioProfile]:
+    radio_type_norm = normalize_lookup_text(radio_type)
+    if not radio_type_norm:
+        return None
+    request_tokens = set(radio_type_norm.split())
+    radio_vendor_norm = normalize_lookup_text(radio_vendor)
+    band_hints = _band_hints_from_freqs(tuple(freq for freq in freqs_ghz if freq is not None))
+
+    best_profile: Optional[RadioProfile] = None
+    best_score = float("-inf")
+
+    for profile in _load_internal_radio_profiles(str(sqlite_path)):
+        profile_type_norm = normalize_lookup_text(profile.radio_type)
+        if not profile_type_norm:
+            continue
+        profile_tokens = set(profile_type_norm.split())
+        common_tokens = request_tokens & profile_tokens
+        if not common_tokens:
+            continue
+
+        score = float(len(common_tokens) * 3)
+        if profile.is_verified:
+            score += 0.5
+        if radio_type_norm == profile_type_norm:
+            score += 8.0
+        elif radio_type_norm in profile_type_norm or profile_type_norm in radio_type_norm:
+            score += 5.0
+
+        profile_vendor_norm = normalize_lookup_text(profile.radio_vendor)
+        if radio_vendor_norm and profile_vendor_norm:
+            if radio_vendor_norm == profile_vendor_norm:
+                score += 4.0
+            elif radio_vendor_norm in profile_vendor_norm or profile_vendor_norm in radio_vendor_norm:
+                score += 2.5
+            else:
+                score -= 1.0
+
+        if band_hints and any(hint in profile_type_norm for hint in band_hints):
+            score += 3.0
+        elif band_hints:
+            digit_tokens = {token for token in profile_tokens if any(ch.isdigit() for ch in token)}
+            if digit_tokens:
+                score -= 1.0
+
+        if channel_width_mhz is not None and profile.receiver_bandwidth_mhz is not None:
+            delta_bw = abs(profile.receiver_bandwidth_mhz - channel_width_mhz)
+            if delta_bw <= 0.5:
+                score += 1.5
+            elif delta_bw <= max(channel_width_mhz, 1.0):
+                score += 0.5
+
+        if score > best_score:
+            best_score = score
+            best_profile = profile
+
+    if best_profile is None or best_score < 5.0:
+        return None
+    return best_profile
 
 
 def parse_optional_float_strict(value: Any) -> Optional[float]:

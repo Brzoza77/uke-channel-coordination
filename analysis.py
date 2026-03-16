@@ -18,11 +18,12 @@ from uke import (
     get_plan_dataset,
     get_internal_duplex_links_for_plan,
     internal_catalog_available,
+    lookup_internal_radio_profile,
     normalize_plan_symbol_key,
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-access-querydef-alignment-2026-03-16"
+ENGINE_VERSION = "hcm-emc-request-radio-profile-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -995,6 +996,28 @@ def _request_leg_eirp_dbm(request: WlrRequest, direction: str) -> float:
     return (tx_site.tx_power_dbm or 18.0) + (tx_site.antenna_gain_dbi or 0.0)
 
 
+def _request_radio_profile_params(request: WlrRequest) -> dict[str, Any]:
+    profile = lookup_internal_radio_profile(
+        radio_type=request.radio_type,
+        radio_vendor=request.radio_vendor,
+        freqs_ghz=(request.freq_ab_ghz, request.freq_ba_ghz),
+        channel_width_mhz=request.channel_width_mhz,
+    )
+    return {
+        "profile": profile,
+        "noise_figure_db": (
+            profile.rx_noise_figure_db
+            if profile is not None and profile.rx_noise_figure_db is not None
+            else DEFAULT_RECEIVER_NOISE_FIGURE_DB
+        ),
+        "atpc_db": (
+            float(profile.atpc_attenuation_db or 0.0)
+            if profile is not None and profile.atpc_attenuation_db is not None
+            else 0.0
+        ),
+    }
+
+
 def _wanted_signal_dbm(
     tx_eirp_dbm: float,
     tx_site: Any,
@@ -1275,6 +1298,9 @@ def estimate_interference_metrics(
 
     request_eirp_ab_dbm = _request_leg_eirp_dbm(request, "ab")
     request_eirp_ba_dbm = _request_leg_eirp_dbm(request, "ba")
+    request_radio_params = _request_radio_profile_params(request)
+    request_noise_figure_db = request_radio_params["noise_figure_db"]
+    request_atpc_db = request_radio_params["atpc_db"] if APPLY_ATPC_TO_COORDINATION_AGGRESSOR else 0.0
     link_eirp_ab_dbm = link.emission_ab.eirp_dbm if link.emission_ab.eirp_dbm is not None else 40.0
     link_eirp_ba_dbm = link.emission_ba.eirp_dbm if link.emission_ba.eirp_dbm is not None else 40.0
     link_atpc_ab_db = link.emission_ab.atpc_attenuation_db if link.emission_ab.atpc_attenuation_db is not None else 0.0
@@ -1306,7 +1332,7 @@ def estimate_interference_metrics(
         victim_wanted_eirp_dbm=request_eirp_ab_dbm,
         victim_wanted_freq_ghz=candidate.freq_ab_ghz,
         victim_bw_mhz=request_bw_mhz,
-        victim_noise_figure_db=DEFAULT_RECEIVER_NOISE_FIGURE_DB,
+        victim_noise_figure_db=request_noise_figure_db,
         victim_rx_antenna_gain_dbi=request_rx_gain_ab_dbi,
         victim_rx_attenuation_db=request_rx_attenuation_ab_db,
         overlap_ratio=overlap_ab_direct,
@@ -1326,7 +1352,7 @@ def estimate_interference_metrics(
         victim_wanted_eirp_dbm=request_eirp_ab_dbm,
         victim_wanted_freq_ghz=candidate.freq_ab_ghz,
         victim_bw_mhz=request_bw_mhz,
-        victim_noise_figure_db=DEFAULT_RECEIVER_NOISE_FIGURE_DB,
+        victim_noise_figure_db=request_noise_figure_db,
         victim_rx_antenna_gain_dbi=request_rx_gain_ab_dbi,
         victim_rx_attenuation_db=request_rx_attenuation_ab_db,
         overlap_ratio=overlap_ab_cross,
@@ -1339,7 +1365,7 @@ def estimate_interference_metrics(
         aggressor_tx_site=request.site_a,
         aggressor_intended_rx_site=request.site_b,
         aggressor_eirp_dbm=request_eirp_ab_dbm,
-        aggressor_atpc_db=0.0,
+        aggressor_atpc_db=request_atpc_db,
         aggressor_freq_ghz=candidate.freq_ab_ghz,
         victim_rx_site=link.site_b,
         victim_desired_tx_site=link.site_a,
@@ -1359,7 +1385,7 @@ def estimate_interference_metrics(
         aggressor_tx_site=request.site_a,
         aggressor_intended_rx_site=request.site_b,
         aggressor_eirp_dbm=request_eirp_ab_dbm,
-        aggressor_atpc_db=0.0,
+        aggressor_atpc_db=request_atpc_db,
         aggressor_freq_ghz=candidate.freq_ab_ghz,
         victim_rx_site=link.site_a,
         victim_desired_tx_site=link.site_b,
@@ -1386,7 +1412,7 @@ def estimate_interference_metrics(
         victim_wanted_eirp_dbm=request_eirp_ba_dbm,
         victim_wanted_freq_ghz=candidate.freq_ba_ghz,
         victim_bw_mhz=request_bw_mhz,
-        victim_noise_figure_db=DEFAULT_RECEIVER_NOISE_FIGURE_DB,
+        victim_noise_figure_db=request_noise_figure_db,
         victim_rx_antenna_gain_dbi=request_rx_gain_ba_dbi,
         victim_rx_attenuation_db=request_rx_attenuation_ba_db,
         overlap_ratio=overlap_ba_direct,
@@ -1406,7 +1432,7 @@ def estimate_interference_metrics(
         victim_wanted_eirp_dbm=request_eirp_ba_dbm,
         victim_wanted_freq_ghz=candidate.freq_ba_ghz,
         victim_bw_mhz=request_bw_mhz,
-        victim_noise_figure_db=DEFAULT_RECEIVER_NOISE_FIGURE_DB,
+        victim_noise_figure_db=request_noise_figure_db,
         victim_rx_antenna_gain_dbi=request_rx_gain_ba_dbi,
         victim_rx_attenuation_db=request_rx_attenuation_ba_db,
         overlap_ratio=overlap_ba_cross,
@@ -1419,7 +1445,7 @@ def estimate_interference_metrics(
         aggressor_tx_site=request.site_b,
         aggressor_intended_rx_site=request.site_a,
         aggressor_eirp_dbm=request_eirp_ba_dbm,
-        aggressor_atpc_db=0.0,
+        aggressor_atpc_db=request_atpc_db,
         aggressor_freq_ghz=candidate.freq_ba_ghz,
         victim_rx_site=link.site_a,
         victim_desired_tx_site=link.site_b,
@@ -1439,7 +1465,7 @@ def estimate_interference_metrics(
         aggressor_tx_site=request.site_b,
         aggressor_intended_rx_site=request.site_a,
         aggressor_eirp_dbm=request_eirp_ba_dbm,
-        aggressor_atpc_db=0.0,
+        aggressor_atpc_db=request_atpc_db,
         aggressor_freq_ghz=candidate.freq_ba_ghz,
         victim_rx_site=link.site_b,
         victim_desired_tx_site=link.site_a,
@@ -1489,7 +1515,7 @@ def estimate_interference_metrics(
     )
     interference_victim_dbm = max(ab_incoming_case["interference_dbm"], ba_incoming_case["interference_dbm"])
     interference_aggressor_dbm = max(ab_outgoing_case["interference_dbm"], ba_outgoing_case["interference_dbm"])
-    noise_request_dbm = thermal_noise_dbm(request_bw_mhz)
+    noise_request_dbm = thermal_noise_dbm(request_bw_mhz, request_noise_figure_db)
     noise_existing_dbm = min(
         ab_outgoing_case["noise_dbm"],
         ba_outgoing_case["noise_dbm"],
@@ -1527,6 +1553,11 @@ def estimate_interference_metrics(
         "md_db": md_db,
         "nfd_db": nfd_db,
         "spectral_coupling_db": spectral_coupling_db,
+        "request_noise_figure_db": request_noise_figure_db,
+        "request_radio_type": request.radio_type,
+        "request_radio_vendor": request.radio_vendor,
+        "request_radio_profile_type": getattr(request_radio_params["profile"], "radio_type", None),
+        "request_radio_profile_vendor": getattr(request_radio_params["profile"], "radio_vendor", None),
         "noise_request_dbm": noise_request_dbm,
         "noise_existing_dbm": noise_existing_dbm,
         "estimated_interference_victim_dbm": interference_victim_dbm,
