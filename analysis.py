@@ -796,15 +796,6 @@ def candidate_matches_frequency_window(
     ):
         return False
 
-    endpoint_distances = _endpoint_distances_km(request, link)
-    min_endpoint_distance = min(endpoint_distances.values())
-    req_mid_lat, req_mid_lon = request_midpoint(request)
-    link_mid_lat, link_mid_lon = link_midpoint(link)
-    midpoint_distance = haversine_km(req_mid_lat, req_mid_lon, link_mid_lat, link_mid_lon)
-
-    if min_endpoint_distance > DEFAULT_RADIUS_KM and midpoint_distance > DEFAULT_RADIUS_KM:
-        return False
-
     return True
 
 
