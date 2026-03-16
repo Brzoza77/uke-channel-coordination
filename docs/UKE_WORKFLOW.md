@@ -510,6 +510,36 @@ Wniosek praktyczny:
   - `Stan_wniosku_po_weryfikacji`
 - samo wpisanie `Status = 2` nadal wygląda na osobny krok VBA, nie na prosty wynik pojedynczej kwerendy
 
+### Która procedura wygląda na writer `Wynik EMC-LR`
+
+Najważniejszy artefakt:
+- `logs/access_result_writers_20260316.json`
+
+Najmocniejsze rozróżnienie:
+- `utworz_wynik_zaklocen`
+  - wygląda na tor NSS/sat -> LR
+  - nie jest najlepszym kandydatem na writer naziemnego benchmarku
+- `wyniki_EMC_fk`
+  - wygląda na właściwy writer wyników parowych do `Wynik EMC-LR`
+  - ma parametry:
+    - `marg`
+    - `dz`
+    - `idprzesla`
+    - `wsk`
+    - `metoda`
+    - `blad`
+    - `opis_bledu`
+  - i siedzi obok śladów:
+    - `FKandydujaca_b#`
+    - `Wynik EMC-LR`
+    - `metoda=2`
+    - `brak maski`
+    - `brak nadajnika`
+
+Wniosek praktyczny:
+- następny najbardziej wartościowy reverse engineering powinien już iść w semantykę argumentów `wyniki_EMC_fk`
+- a nie w dalsze rozkładanie `utworz_wynik_zaklocen`, które wygląda na poboczny tor raportowania
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:

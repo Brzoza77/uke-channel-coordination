@@ -64,6 +64,10 @@ Najważniejsze dla workflow UKE:
 - `utworz_wynik_zaklocen`
 - `kompat_sat_linie_R`
 
+Po dalszej analizie:
+- `utworz_wynik_zaklocen` wygląda na tor NSS/sat -> LR
+- głównym targetem dla naziemnego benchmarku `Wynik EMC-LR` jest raczej `wyniki_EMC_fk`
+
 ## Najważniejsze ślady proceduralne
 
 Potwierdzone ślady:
@@ -287,6 +291,41 @@ Najważniejszy wniosek z tej warstwy:
   - `Kwalifikacja_EMC`
   - `Stan_wniosku_po_weryfikacji`
 - a samo wpisanie `Status` nadal wygląda na osobny krok proceduralny VBA
+
+## Writer wyników EMC
+
+Najważniejszy artefakt:
+- `logs/access_result_writers_20260316.json`
+
+### `utworz_wynik_zaklocen`
+- ślady:
+  - zapis wyników zakłóceń dla pojedynczej NSS i stacji linii radiowych
+  - `stacja_LR` w bazie satelitarnej
+  - `zapisz_dane_o_zakloceniu`
+
+Wniosek:
+- to nie wygląda na główny writer naziemnego benchmarku `Wynik EMC-LR`
+- raczej osobny tor raportowania NSS/sat -> LR
+
+### `wyniki_EMC_fk`
+- ślady:
+  - `wpisanie 1 rekordu wyniku`
+  - `Sub wyniki_EMC_fk(db, fid As Long, marg As Variant, dz As Double, idprzesla As Long, wsk As Byte, metoda As Byte, blad As Long, opis_bledu As String)`
+  - `Wynik EMC-LR`
+  - `FKandydujaca_b#`
+  - `metoda=2`
+  - `brak maski`
+  - `brak nadajnika`
+  - `Nfd_Md = 0`
+
+Wniosek:
+- to jest dziś najbardziej obiecujące miejsce dalszego reverse engineeringu warstwy obliczeniowej
+- właśnie tutaj najpewniej trzeba odtworzyć:
+  - znaczenie `marg`
+  - znaczenie `dz`
+  - znaczenie `wsk`
+  - gałęzie `metoda`
+  - zachowanie przy brakach maski/nadajnika
 
 ## Najbardziej sensowny następny krok
 
