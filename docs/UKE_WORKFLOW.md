@@ -1033,6 +1033,39 @@ To wzmacnia model:
 Raport:
 - `logs/access_status_kand_20260316.json`
 
+### Handoff `status_kand -> UPDATE ... status =`
+
+Ten etap udało się już potwierdzić twardziej przez offsety w pliku `MDB`.
+
+Najważniejsze:
+- `wstaw_status`, `nrsn`, `status_kand` są ciasno skupione w jednym bloku
+- widoczny `UPDATE DISTINCTROW ... SET [status] =` leży dużo dalej
+
+Przykładowe offsety:
+- `wstaw_status` -> `49556191`
+- `status_kand` -> `49556266`
+- `UPDATE ... SET [status] =` -> `49807813`
+
+Delta:
+- `status_kand -> UPDATE status = 251547` bajtów
+
+To bardzo mocno sugeruje:
+- `status_kand` nie jest samym writerem SQL
+- tylko wynikiem wcześniejszego helpera
+- a właściwy zapis statusu wykonuje późniejszy etap
+
+W tej samej bazie widać też inny jawny write path dla `fkand`:
+- `strpyt = "UPDATE [Czestotliwosc kandydujaca] SET ... T_dane_koor ..."`
+- `db.Execute strpyt`
+
+To wzmacnia hipotezę, że końcowy zapis `Status` jest realizowany podobnie:
+- helper lokalny wyznacza wartość
+- inny helper buduje SQL
+- potem następuje wykonanie `db.Execute`
+
+Raport:
+- `logs/access_status_write_handoff_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

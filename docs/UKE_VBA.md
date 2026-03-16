@@ -824,6 +824,50 @@ Najbardziej prawdopodobny model:
 Raport:
 - `logs/access_status_kand_20260316.json`
 
+## Handoff `status_kand -> UPDATE ... status =`
+
+Po złożeniu offsetów ze stringów `MDB` da się już twardo pokazać, że:
+- blok:
+  - `wstaw_status`
+  - `nrsn`
+  - `status_kand`
+  jest osobnym etapem,
+- a widoczny dynamiczny update:
+  - `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [status] = ...`
+  leży dużo dalej w pliku.
+
+Najważniejsze offsety:
+- `wstaw_status`
+  - `49556191`
+- `nrsn`
+  - `49556227`
+- `status_kand`
+  - `49556266`
+- `UPDATE ... SET [status] =`
+  - `49807813`
+
+Delta:
+- `status_kand -> UPDATE status`
+  - `251547` bajtów
+
+To jest wystarczająco dużo, żeby traktować te ślady jako:
+- dwa oddzielne etapy proceduralne,
+- a nie jeden czytelny blok rozcięty przez parser stringów.
+
+Dodatkowo w tej samej bazie widać inny jawny write path dla tej samej tabeli:
+- `strpyt = "UPDATE [Czestotliwosc kandydujaca] SET ... T_dane_koor ..."`
+- `db.Execute strpyt`
+
+Wniosek:
+- Access już na pewno używa dynamicznego SQL do zapisu rekordów `fkand`
+- więc najbardziej prawdopodobny model jest taki:
+  1. `wstaw_status` / `status_kand` wyznaczają końcową wartość logiczną
+  2. późniejsza warstwa buduje `UPDATE ... SET [status] = ...`
+  3. jeszcze później wykonuje go przez helper pokroju `db.Execute strpyt`
+
+Raport:
+- `logs/access_status_write_handoff_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
