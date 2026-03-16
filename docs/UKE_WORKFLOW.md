@@ -1414,3 +1414,75 @@ To porządkuje nam dalszą pracę:
 
 Raport:
 - `logs/fkand_pattern_multicase_scan_20260316.json`
+
+### Rozdzielone klasy rozjazdu `fkand`
+
+Pełna klasyfikacja na wszystkich mismatch rows z paczki:
+- `1106`
+- `1234`
+- `1308`
+- `1378`
+- `1905`
+- `3961`
+- `BT10561...`
+
+dała trzy stabilne klasy:
+
+1. `problem_only`
+- `386` wierszy
+- gałęzie:
+  - `A->B = 205`
+  - `B->A = 181`
+- konflikty:
+  - `adjacent = 252`
+  - `geometry = 134`
+- relacje:
+  - `shared_site = 233`
+  - `external = 135`
+  - `same_span = 18`
+
+2. `blocking_only`
+- `266` wierszy
+- gałęzie:
+  - `A->B = 144`
+  - `B->A = 122`
+- konflikty:
+  - `cochannel = 252`
+  - `adjacent = 14`
+- relacje:
+  - `external = 182`
+  - `shared_site = 84`
+
+3. `problem_plus_blocking`
+- `76` wierszy
+- praktycznie czysty:
+  - `cochannel`
+  - głównie `external`
+
+Nie znaleziono stabilnej klasy:
+- `problem_plus_blocking_plus_red`
+
+Interpretacja względem VBA:
+- `problem_only`
+  - najlepiej pasuje do ścieżki:
+    - `problem_kons`
+    - `TD p-gr`
+    - `Problem.decyzja_o_koordynacji = IIf([d11] > [dgr], 1, 2)`
+- `blocking_only`
+  - najlepiej pasuje do ścieżki:
+    - `nadaj czestotliwosci status niekompatybilna`
+    - `wyniki_EMC_prz`
+    - `aktualizacja parametr w fkand`
+- `problem_plus_blocking`
+  - wygląda jak strefa nakładania obu procedur:
+    - bookkeeping problemu
+    - i jednocześnie procedura niekompatybilności kandydata
+
+To jest dziś najmocniejszy roboczy model:
+- Access nie ma jednego testu typu:
+  - `problem == blocking == red`
+- ma co najmniej dwie proceduralne ścieżki,
+  które potem schodzą się w agregacji `fkand`
+
+Raport:
+- `logs/fkand_mismatch_classes_20260316.json`
