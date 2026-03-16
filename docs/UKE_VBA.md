@@ -676,6 +676,48 @@ a nie w samym writerze wyników parowych.
 Raport:
 - `logs/access_system_tables_and_state_flow_20260316.json`
 
+## `wstaw_status` i finalna promocja kandydata
+
+Osobna analiza `wstaw_status` dała już dość spójny obraz końcówki workflow.
+
+Najważniejsze ustalenia:
+- `statusfk = 1` pozostaje najczytelniejszym punktem inicjalizacji
+  proceduralnego stanu kandydata
+- jedyna odzyskana jawnie promocja tego stanu to:
+  - `If status_fkand_zagr = 2 Then status_fkand = 2`
+- przy błędzie Access może przerwać ścieżkę przez:
+  - `Koniec_obliczen dbb, fid(i), status_fkand`
+- `Stan_wniosku_po_weryfikacji(...)` występuje po:
+  - `ExportTx_przeslo`
+  - `ExportRx_przeslo`
+  - `wpisz_dane_koor`
+  - `kwalifikacja_koor`
+  - `Kwalifikacja_EMC`
+- `wstaw_status` i `status_kand` siedzą w tej samej warstwie leksykalnej co
+  znaczniki post-weryfikacyjne
+
+Najbardziej prawdopodobna interpretacja:
+1. `statusfk` zbiera stan po drodze
+2. `Stan_wniosku_po_weryfikacji` kończy warstwę kwalifikacji
+3. `wstaw_status` używa wyniku tej warstwy do wyznaczenia końcowego
+   `status_kand`
+4. gdzieś obok wykonywany jest literalny update:
+   - `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [status] = ...`
+
+Czyli:
+- `wstaw_status` wygląda bardziej jak helper decyzyjny / dispatcher
+- a nie jak sam writer surowych wyników EMC
+
+Otwarte pytania:
+- czy `status_kand` jest lokalną zmienną liczbową, czy wynikiem pomocniczej funkcji
+- czy `wstaw_status` wykonuje zapis bezpośrednio, czy tylko wyznacza wartość
+  później wpisywaną przez dynamiczny SQL
+- czy tor krajowy może podnieść `statusfk` do `2` bez przejścia przez gałąź
+  `status_fkand_zagr`
+
+Raport:
+- `logs/access_wstaw_status_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

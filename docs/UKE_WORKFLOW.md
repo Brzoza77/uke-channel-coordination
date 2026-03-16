@@ -917,6 +917,40 @@ Czyli:
 Raport:
 - `logs/access_system_tables_and_state_flow_20260316.json`
 
+### `wstaw_status`
+
+Osobna analiza `wstaw_status` wzmacnia ten sam obraz:
+
+- `statusfk = 1` to proceduralny seed stanu kandydata
+- odzyskana jawna promocja to:
+  - `If status_fkand_zagr = 2 Then status_fkand = 2`
+- `Koniec_obliczen dbb, fid(i), status_fkand` pokazuje, że Access potrafi
+  przerwać przebieg, ale nadal niesie akumulator stanu
+- `Stan_wniosku_po_weryfikacji(...)` występuje po warstwie:
+  - `ExportTx_przeslo`
+  - `ExportRx_przeslo`
+  - `wpisz_dane_koor`
+  - `kwalifikacja_koor`
+  - `Kwalifikacja_EMC`
+- `wstaw_status` i `status_kand` siedzą właśnie w tej post-weryfikacyjnej
+  warstwie
+
+Najbardziej prawdopodobny przebieg jest więc taki:
+1. akumulacja `statusfk`
+2. kwalifikacja i weryfikacja
+3. `Stan_wniosku_po_weryfikacji`
+4. `wstaw_status`
+5. wyznaczenie `status_kand`
+6. późniejszy `UPDATE Czestotliwosc kandydujaca.status`
+
+Wniosek:
+- finalny status kandydata wygląda na wynik helpera proceduralnego po
+  kwalifikacji
+- a nie prostą projekcję z `Wynik EMC-LR`
+
+Raport:
+- `logs/access_wstaw_status_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych
