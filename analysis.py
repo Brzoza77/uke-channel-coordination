@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from math import asin, atan2, cos, degrees, log10, radians, sin, sqrt
+from math import acos, asin, atan2, cos, degrees, log10, radians, sin, sqrt
 from typing import Any, Optional
 
 from antenna_catalog import interpolate_attenuation_db
@@ -23,7 +23,7 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-emc-request-radio-profile-2026-03-16"
+ENGINE_VERSION = "hcm-emc-angle-observability-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -94,6 +94,16 @@ class EMCInput:
     freq_delta_mhz: float
     cross_pol_bonus_db: float
     enable_mask_lookup: bool
+    aggressor_main_azimuth_deg: Optional[float] = None
+    aggressor_main_elevation_deg: Optional[float] = None
+    aggressor_interference_azimuth_deg: Optional[float] = None
+    aggressor_interference_elevation_deg: Optional[float] = None
+    victim_main_azimuth_deg: Optional[float] = None
+    victim_main_elevation_deg: Optional[float] = None
+    victim_interference_azimuth_deg: Optional[float] = None
+    victim_interference_elevation_deg: Optional[float] = None
+    aggressor_off_axis_deg: Optional[float] = None
+    victim_off_axis_deg: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -932,60 +942,169 @@ def _bearing_between_sites(site_from: Any, site_to: Any) -> Optional[float]:
     return initial_bearing_deg(point_from.lat_deg, point_from.lon_deg, point_to.lat_deg, point_to.lon_deg)
 
 
-def _endpoint_discrimination_penalty_db(
+def _elevation_between_sites(site_from: Any, site_to: Any) -> Optional[float]:
+    distance_km = _site_distance_km(site_from, site_to)
+    if distance_km <= 0.001:
+        return None
+    height_from = _endpoint_height_asl_m(site_from)
+    height_to = _endpoint_height_asl_m(site_to)
+    if height_from is None or height_to is None:
+        return None
+    return degrees(atan2(height_to - height_from, distance_km * 1000.0))
+
+
+def _vector_from_azimuth_elevation_deg(azimuth_deg: float, elevation_deg: float) -> tuple[float, float, float]:
+    az = radians(azimuth_deg)
+    el = radians(elevation_deg)
+    horizontal = cos(el)
+    x = horizontal * sin(az)
+    y = horizontal * cos(az)
+    z = sin(el)
+    return x, y, z
+
+
+def _spatial_angular_difference_deg(
+    azimuth_a_deg: Optional[float],
+    elevation_a_deg: Optional[float],
+    azimuth_b_deg: Optional[float],
+    elevation_b_deg: Optional[float],
+) -> Optional[float]:
+    if azimuth_a_deg is None or azimuth_b_deg is None:
+        return None
+    if elevation_a_deg is None or elevation_b_deg is None:
+        return angular_difference_deg(azimuth_a_deg, azimuth_b_deg)
+    ax, ay, az = _vector_from_azimuth_elevation_deg(azimuth_a_deg, elevation_a_deg)
+    bx, by, bz = _vector_from_azimuth_elevation_deg(azimuth_b_deg, elevation_b_deg)
+    dot = max(-1.0, min(1.0, ax * bx + ay * by + az * bz))
+    return degrees(acos(dot))
+
+
+def _endpoint_discrimination_metrics(
     tx_site: Any,
     intended_rx_site: Any,
     victim_rx_site: Any,
     victim_desired_tx_site: Any,
     tx_freq_ghz: Optional[float] = None,
     victim_rx_freq_ghz: Optional[float] = None,
-) -> float:
+) -> dict[str, Any]:
     coupling_distance_km = _site_distance_km(tx_site, victim_rx_site)
     if coupling_distance_km <= SITE_MATCH_THRESHOLD_KM:
-        return 0.0
+        return {
+            "total_penalty_db": 0.0,
+            "coupling_distance_km": coupling_distance_km,
+            "tx_main_azimuth_deg": None,
+            "tx_main_elevation_deg": None,
+            "tx_interference_azimuth_deg": None,
+            "tx_interference_elevation_deg": None,
+            "rx_main_azimuth_deg": None,
+            "rx_main_elevation_deg": None,
+            "rx_interference_azimuth_deg": None,
+            "rx_interference_elevation_deg": None,
+            "tx_off_axis_deg": None,
+            "rx_off_axis_deg": None,
+            "tx_penalty_db": 0.0,
+            "rx_penalty_db": 0.0,
+            "used_catalog_pattern": False,
+        }
 
     tx_main_bearing = _bearing_between_sites(tx_site, intended_rx_site)
     tx_interference_bearing = _bearing_between_sites(tx_site, victim_rx_site)
     rx_main_bearing = _bearing_between_sites(victim_rx_site, victim_desired_tx_site)
     rx_interference_bearing = _bearing_between_sites(victim_rx_site, tx_site)
+    tx_main_elevation = _elevation_between_sites(tx_site, intended_rx_site)
+    tx_interference_elevation = _elevation_between_sites(tx_site, victim_rx_site)
+    rx_main_elevation = _elevation_between_sites(victim_rx_site, victim_desired_tx_site)
+    rx_interference_elevation = _elevation_between_sites(victim_rx_site, tx_site)
 
     tx_penalty_db = 0.0
     rx_penalty_db = 0.0
     used_catalog_pattern = False
+    tx_azimuth_diff = None
+    rx_azimuth_diff = None
+    tx_diff = None
+    rx_diff = None
     if tx_main_bearing is not None and tx_interference_bearing is not None:
-        tx_diff = angular_difference_deg(tx_main_bearing, tx_interference_bearing)
-        tx_penalty_db = _angle_penalty_from_diff(tx_diff)
+        tx_azimuth_diff = angular_difference_deg(tx_main_bearing, tx_interference_bearing)
+        tx_diff = _spatial_angular_difference_deg(
+            tx_main_bearing,
+            tx_main_elevation,
+            tx_interference_bearing,
+            tx_interference_elevation,
+        )
+        tx_penalty_db = _angle_penalty_from_diff(tx_azimuth_diff)
         catalog_penalty = interpolate_attenuation_db(
             getattr(tx_site, "antenna_type", None),
             getattr(tx_site, "antenna_vendor", None),
             tx_freq_ghz,
-            tx_diff,
+            tx_azimuth_diff,
         )
         if catalog_penalty is not None:
             tx_penalty_db = catalog_penalty
             used_catalog_pattern = True
     if rx_main_bearing is not None and rx_interference_bearing is not None:
-        rx_diff = angular_difference_deg(rx_main_bearing, rx_interference_bearing)
-        rx_penalty_db = _angle_penalty_from_diff(rx_diff)
+        rx_azimuth_diff = angular_difference_deg(rx_main_bearing, rx_interference_bearing)
+        rx_diff = _spatial_angular_difference_deg(
+            rx_main_bearing,
+            rx_main_elevation,
+            rx_interference_bearing,
+            rx_interference_elevation,
+        )
+        rx_penalty_db = _angle_penalty_from_diff(rx_azimuth_diff)
         catalog_penalty = interpolate_attenuation_db(
             getattr(victim_rx_site, "antenna_type", None),
             getattr(victim_rx_site, "antenna_vendor", None),
             victim_rx_freq_ghz,
-            rx_diff,
+            rx_azimuth_diff,
         )
         if catalog_penalty is not None:
             rx_penalty_db = catalog_penalty
             used_catalog_pattern = True
     total_penalty_db = tx_penalty_db + rx_penalty_db
     if used_catalog_pattern:
-        return total_penalty_db
+        return {
+            "total_penalty_db": total_penalty_db,
+            "coupling_distance_km": coupling_distance_km,
+            "tx_main_azimuth_deg": tx_main_bearing,
+            "tx_main_elevation_deg": tx_main_elevation,
+            "tx_interference_azimuth_deg": tx_interference_bearing,
+            "tx_interference_elevation_deg": tx_interference_elevation,
+            "rx_main_azimuth_deg": rx_main_bearing,
+            "rx_main_elevation_deg": rx_main_elevation,
+            "rx_interference_azimuth_deg": rx_interference_bearing,
+            "rx_interference_elevation_deg": rx_interference_elevation,
+            "tx_off_axis_deg": tx_diff,
+            "rx_off_axis_deg": rx_diff,
+            "tx_azimuth_off_axis_deg": tx_azimuth_diff,
+            "rx_azimuth_off_axis_deg": rx_azimuth_diff,
+            "tx_penalty_db": tx_penalty_db,
+            "rx_penalty_db": rx_penalty_db,
+            "used_catalog_pattern": True,
+        }
     if coupling_distance_km <= 1.0:
-        return min(total_penalty_db, 12.0)
+        total_penalty_db = min(total_penalty_db, 12.0)
     if coupling_distance_km <= 2.0:
-        return min(total_penalty_db, 24.0)
+        total_penalty_db = min(total_penalty_db, 24.0)
     if coupling_distance_km <= 5.0:
-        return min(total_penalty_db, 32.0)
-    return total_penalty_db
+        total_penalty_db = min(total_penalty_db, 32.0)
+    return {
+        "total_penalty_db": total_penalty_db,
+        "coupling_distance_km": coupling_distance_km,
+        "tx_main_azimuth_deg": tx_main_bearing,
+        "tx_main_elevation_deg": tx_main_elevation,
+        "tx_interference_azimuth_deg": tx_interference_bearing,
+        "tx_interference_elevation_deg": tx_interference_elevation,
+        "rx_main_azimuth_deg": rx_main_bearing,
+        "rx_main_elevation_deg": rx_main_elevation,
+        "rx_interference_azimuth_deg": rx_interference_bearing,
+        "rx_interference_elevation_deg": rx_interference_elevation,
+        "tx_off_axis_deg": tx_diff,
+        "rx_off_axis_deg": rx_diff,
+        "tx_azimuth_off_axis_deg": tx_azimuth_diff,
+        "rx_azimuth_off_axis_deg": rx_azimuth_diff,
+        "tx_penalty_db": tx_penalty_db,
+        "rx_penalty_db": rx_penalty_db,
+        "used_catalog_pattern": used_catalog_pattern,
+    }
 
 
 def _request_leg_eirp_dbm(request: WlrRequest, direction: str) -> float:
@@ -1051,6 +1170,16 @@ def _build_emc_input(
     freq_delta_mhz: float,
     cross_pol_bonus_db: float,
     enable_mask_lookup: bool,
+    aggressor_main_azimuth_deg: Optional[float],
+    aggressor_main_elevation_deg: Optional[float],
+    aggressor_interference_azimuth_deg: Optional[float],
+    aggressor_interference_elevation_deg: Optional[float],
+    victim_main_azimuth_deg: Optional[float],
+    victim_main_elevation_deg: Optional[float],
+    victim_interference_azimuth_deg: Optional[float],
+    victim_interference_elevation_deg: Optional[float],
+    aggressor_off_axis_deg: Optional[float],
+    victim_off_axis_deg: Optional[float],
 ) -> EMCInput:
     return EMCInput(
         direction=direction,
@@ -1067,6 +1196,16 @@ def _build_emc_input(
         freq_delta_mhz=freq_delta_mhz,
         cross_pol_bonus_db=cross_pol_bonus_db,
         enable_mask_lookup=enable_mask_lookup,
+        aggressor_main_azimuth_deg=aggressor_main_azimuth_deg,
+        aggressor_main_elevation_deg=aggressor_main_elevation_deg,
+        aggressor_interference_azimuth_deg=aggressor_interference_azimuth_deg,
+        aggressor_interference_elevation_deg=aggressor_interference_elevation_deg,
+        victim_main_azimuth_deg=victim_main_azimuth_deg,
+        victim_main_elevation_deg=victim_main_elevation_deg,
+        victim_interference_azimuth_deg=victim_interference_azimuth_deg,
+        victim_interference_elevation_deg=victim_interference_elevation_deg,
+        aggressor_off_axis_deg=aggressor_off_axis_deg,
+        victim_off_axis_deg=victim_off_axis_deg,
     )
 
 
@@ -1105,7 +1244,15 @@ def _directional_interference_case(
     freq_delta_mhz: float,
     cross_pol_bonus_db: float,
     enable_mask_lookup: bool = False,
-) -> dict[str, float]:
+) -> dict[str, Any]:
+    endpoint_metrics = _endpoint_discrimination_metrics(
+        aggressor_tx_site,
+        aggressor_intended_rx_site,
+        victim_rx_site,
+        victim_desired_tx_site,
+        tx_freq_ghz=aggressor_freq_ghz,
+        victim_rx_freq_ghz=victim_wanted_freq_ghz,
+    )
     emc_input = _build_emc_input(
         direction=direction,
         aggressor_eirp_dbm=aggressor_eirp_dbm,
@@ -1121,17 +1268,20 @@ def _directional_interference_case(
         freq_delta_mhz=freq_delta_mhz,
         cross_pol_bonus_db=cross_pol_bonus_db,
         enable_mask_lookup=enable_mask_lookup,
+        aggressor_main_azimuth_deg=endpoint_metrics["tx_main_azimuth_deg"],
+        aggressor_main_elevation_deg=endpoint_metrics["tx_main_elevation_deg"],
+        aggressor_interference_azimuth_deg=endpoint_metrics["tx_interference_azimuth_deg"],
+        aggressor_interference_elevation_deg=endpoint_metrics["tx_interference_elevation_deg"],
+        victim_main_azimuth_deg=endpoint_metrics["rx_main_azimuth_deg"],
+        victim_main_elevation_deg=endpoint_metrics["rx_main_elevation_deg"],
+        victim_interference_azimuth_deg=endpoint_metrics["rx_interference_azimuth_deg"],
+        victim_interference_elevation_deg=endpoint_metrics["rx_interference_elevation_deg"],
+        aggressor_off_axis_deg=endpoint_metrics["tx_off_axis_deg"],
+        victim_off_axis_deg=endpoint_metrics["rx_off_axis_deg"],
     )
     coupling_distance_km = max(_site_distance_km(aggressor_tx_site, victim_rx_site), 0.05)
     path_loss_db = fspl_db(coupling_distance_km, min(victim_wanted_freq_ghz, aggressor_freq_ghz)) + DEFAULT_MISC_LOSS_DB
-    endpoint_penalty_db = _endpoint_discrimination_penalty_db(
-        aggressor_tx_site,
-        aggressor_intended_rx_site,
-        victim_rx_site,
-        victim_desired_tx_site,
-        tx_freq_ghz=aggressor_freq_ghz,
-        victim_rx_freq_ghz=victim_wanted_freq_ghz,
-    )
+    endpoint_penalty_db = endpoint_metrics["total_penalty_db"]
     reference_bw_mhz = max(victim_bw_mhz, 0.001)
     filter_discrimination_db = _empirical_filter_discrimination_db(freq_delta_mhz, reference_bw_mhz, overlap_ratio)
     if enable_mask_lookup and overlap_ratio <= 0.0:
@@ -1174,6 +1324,18 @@ def _directional_interference_case(
     return {
         "distance_km": coupling_distance_km,
         "endpoint_penalty_db": endpoint_penalty_db,
+        "tx_main_azimuth_deg": endpoint_metrics["tx_main_azimuth_deg"],
+        "tx_main_elevation_deg": endpoint_metrics["tx_main_elevation_deg"],
+        "tx_interference_azimuth_deg": endpoint_metrics["tx_interference_azimuth_deg"],
+        "tx_interference_elevation_deg": endpoint_metrics["tx_interference_elevation_deg"],
+        "rx_main_azimuth_deg": endpoint_metrics["rx_main_azimuth_deg"],
+        "rx_main_elevation_deg": endpoint_metrics["rx_main_elevation_deg"],
+        "rx_interference_azimuth_deg": endpoint_metrics["rx_interference_azimuth_deg"],
+        "rx_interference_elevation_deg": endpoint_metrics["rx_interference_elevation_deg"],
+        "tx_off_axis_deg": endpoint_metrics["tx_off_axis_deg"],
+        "rx_off_axis_deg": endpoint_metrics["rx_off_axis_deg"],
+        "tx_penalty_db": endpoint_metrics["tx_penalty_db"],
+        "rx_penalty_db": endpoint_metrics["rx_penalty_db"],
         "md_db": md_db,
         "nfd_db": nfd_db,
         "interference_dbm": interference_dbm,
