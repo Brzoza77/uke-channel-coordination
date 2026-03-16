@@ -238,6 +238,108 @@ Na podstawie tabel:
 
 najbardziej prawdopodobna logika wyboru kanału wygląda tak:
 
+## Access EMC End-to-End
+
+Na podstawie zapisanych `QueryDef` w `LR_Konsultacja_349.mdb` udało się odtworzyć
+bardziej literalny przebieg Accessa od wejścia EMC do wiersza DOC.
+
+Najważniejszy artefakt:
+- `logs/access_emc_end_to_end_20260316.json`
+
+Przebieg:
+
+1. `jest_nadajnik_w_bazie`
+   - Access dopasowuje radio po:
+     - typie
+     - producencie
+     - zakresie częstotliwości
+     - zakresie szerokości kanału
+   - to jest najbliższy odpowiednik doboru request-side profilu radia.
+
+2. `Dane_EMC_druk`
+   - Access wzbogaca `Dane_EMC` o snapshoty:
+     - `Nadajnik_kons`
+     - `Antena_kons`
+     - `Producent_kons`
+
+3. `ExportTx_przeslo` / `ExportRx_przeslo`
+   - Access serializuje payloady `T_dane_koor` / `R_dane_koor`
+   - payload zawiera m.in.:
+     - częstotliwość
+     - szerokość kanału
+     - maskę radia
+     - azymut główny
+     - elewację główną
+     - moc Tx
+     - poziom szumów Rx
+     - tłumienie cyrkulatora
+     - producenta i typ radia
+     - producenta i typ anteny
+     - charakterystyki copol/crosspol
+
+4. `Czestotliwosc kandydujaca`
+   - kandydat przechowuje:
+     - `T_dane_koor`
+     - `R_dane_koor`
+     - `MargNad`
+     - `MargOdb`
+     - `Status`
+
+5. `Dane_do_EMC_BENNER`
+   - Access łączy:
+     - `Czestotliwosc kandydujaca`
+     - `Dane_EMC`
+   - po `Przeslo#`
+   - i przygotowuje wejście do obliczeń EMC dla konkretnego `FKandydujaca#`
+
+6. `Wynik EMC-LR`
+   - wynik parowy EMC:
+     - `FKandydujaca_b#`
+     - `Przęsło_i#`
+     - `Margines_b-i`
+     - `Margines_i-b`
+     - `Metoda`
+     - `blad_obliczen`
+
+7. `Wyniki_b-i` / `Wyniki_i-b`
+   - Access buduje z `Wynik EMC-LR` wiersze widoczne w wydruku DOC
+   - filtruje:
+     - `Margines > 1`
+     - `Metoda < 2`
+   - i dopiero tutaj dokleja:
+     - permit (`DECYZJA.NrDecyzji`)
+     - stacje
+     - operatora
+     - radio
+
+8. `Wyniki_do_wydruku`
+   - Access wybiera kandydaty do wydruku po:
+     - `Numer_przesla`
+     - `Status = 2`
+
+9. `Pary_fk_ABprim` / `Pary_fk_AprimB`
+   - Access paruje rekordy `A/B` do kanału duplexowego:
+     - ten sam `Numer_przesla`
+     - ta sama `Polaryzacja`
+     - numer kanału z apostrofem i bez apostrofu
+
+Potwierdzone zależności payloadu:
+- `payload main azimuth ~= Dane_EMC.KierPromN/O`
+- `payload main elevation ~= Dane_EMC.KatElewN/O`
+- `payload tx_power_dbw = Dane_EMC.Moc_nadajnika - 30`
+- `payload noise_floor_dbw = -174 dBm/Hz + 10log10(BW_Hz) + NF`, przeliczone do dBW
+- `payload circulator_loss_db ~= Dane_EMC.Tlum_cyrk_N/O`
+
+Wniosek praktyczny:
+- nasz `EMCInput` powinien jawnie przenosić:
+  - azymut
+  - elewację
+  - parametry maski
+  - poziom szumów / NF
+  - tłumienia torowe
+- sama obecność azymutu i elewacji w payloadzie nie dowodzi jeszcze, że Access
+  stosuje dodatkową 3D dyskryminację ponad standardowe użycie charakterystyk antenowych.
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
