@@ -282,6 +282,46 @@ def _mapped_case_key(
     return _station_aware_case_key(row, conflict)
 
 
+def _writer_side_from_case_key(case_key: str) -> str:
+    if case_key.startswith("ab_"):
+        return "b-i"
+    if case_key.startswith("ba_"):
+        return "i-b"
+    return ""
+
+
+def _project_access_writer_fields(
+    conflict: Optional[ConflictAssessment],
+    mapped_case_key: str,
+) -> dict[str, str]:
+    if not conflict or not mapped_case_key:
+        return {
+            "engine_writer_projection_case_key": "",
+            "engine_writer_projection_side": "",
+            "engine_writer_projection_method": "",
+            "engine_writer_projection_error_code": "",
+            "engine_writer_projection_error_text": "",
+            "engine_writer_projection_margin_db": "",
+            "engine_writer_projection_distance_km": "",
+            "engine_writer_projection_ci_db": "",
+            "engine_writer_projection_degradation_db": "",
+        }
+
+    case_data = conflict.details.get(mapped_case_key, {}) or {}
+    side = _writer_side_from_case_key(mapped_case_key)
+    return {
+        "engine_writer_projection_case_key": mapped_case_key,
+        "engine_writer_projection_side": side,
+        "engine_writer_projection_method": "1",
+        "engine_writer_projection_error_code": "0",
+        "engine_writer_projection_error_text": "",
+        "engine_writer_projection_margin_db": f"{float(case_data.get('margin_db', 0.0)):.6f}",
+        "engine_writer_projection_distance_km": f"{float(case_data.get('distance_km', 0.0)):.6f}",
+        "engine_writer_projection_ci_db": f"{float(case_data.get('ci_db', 0.0)):.6f}",
+        "engine_writer_projection_degradation_db": f"{float(case_data.get('degradation_db', 0.0)):.6f}",
+    }
+
+
 def update_rows(
     rows: list[dict[str, str]],
     assessments: list[ChannelAssessment],
@@ -358,6 +398,7 @@ def update_rows(
         row["engine_mapped_aligned_db"] = f"{float(mapped_case_data.get('degradation_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_mapped_aligned_ci_db"] = f"{float(mapped_case_data.get('ci_db', 0.0)):.6f}" if engine_conflict else ""
         row["engine_mapped_aligned_margin_db"] = f"{float(mapped_case_data.get('margin_db', 0.0)):.6f}" if engine_conflict else ""
+        row.update(_project_access_writer_fields(engine_conflict, mapped_case_key))
 
     for row in rows:
         key = (
@@ -411,6 +452,15 @@ def main() -> None:
         "engine_mapped_aligned_db",
         "engine_mapped_aligned_ci_db",
         "engine_mapped_aligned_margin_db",
+        "engine_writer_projection_case_key",
+        "engine_writer_projection_side",
+        "engine_writer_projection_method",
+        "engine_writer_projection_error_code",
+        "engine_writer_projection_error_text",
+        "engine_writer_projection_margin_db",
+        "engine_writer_projection_distance_km",
+        "engine_writer_projection_ci_db",
+        "engine_writer_projection_degradation_db",
     ]
     for name in extra_fieldnames:
         if name not in fieldnames:
