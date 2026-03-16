@@ -59,7 +59,7 @@ DEFAULT_WORKFLOW_TABLES = [
     "Stan_przesla_tabela",
     "SIEC",
     "STACJA_NS",
-    "ANTENA_sat",
+    "ANTENA_SAT",
 ]
 
 

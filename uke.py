@@ -1309,6 +1309,8 @@ def _internal_catalog_query() -> str:
       ON a_o.antena_id = pa_o.antena_id
     LEFT JOIN lr_konsultacja_349__producent prod_o
       ON prod_o.producent_id = a_o.producent_id
+    LEFT JOIN lr_konsultacja_349__przesla_do_modyfikacji pm
+      ON pm.prz_s_o_modyfikowane_id = p.prz_s_o_id
     """
 
 
@@ -1445,6 +1447,7 @@ def _get_internal_duplex_links_window_cached(
       AND k_n.dlug_geo IS NOT NULL
       AND k_o.szer_geo IS NOT NULL
       AND k_o.dlug_geo IS NOT NULL
+      AND pm.prz_s_o_modyfikowane_id IS NULL
     """
     params: list[Any] = [
         min_freq_ghz - 0.25,
