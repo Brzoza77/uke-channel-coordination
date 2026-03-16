@@ -942,6 +942,39 @@ To wygląda teraz bardziej jak dwuwarstwowy dispatcher:
 Raport:
 - `logs/access_status_dispatcher_20260316.json`
 
+## Relacja `wyniki_EMC_prz -> aktualizacja parametr w fkand`
+
+To jest obecnie najczytelniej odzyskana relacja między warstwą parowych
+wyników EMC a stanem kandydata.
+
+Najważniejsze ustalenia:
+- w istotnej gałęzi LR są dokładnie dwa write’y:
+  - `wyniki_EMC_prz ..., Marg_n, dz, ..., 1, 1, ...`
+  - `wyniki_EMC_prz ..., Marg_o, Dzi, ..., 2, 1, ...`
+- w tym samym sąsiedztwie jest tylko jeden odzyskany marker:
+  - `aktualizacja parametr`
+  - `w fkand`
+
+Byte delta:
+- `Marg_n -> aktualizacja parametr`
+  - `3944`
+- `Marg_o -> aktualizacja parametr`
+  - `544`
+
+Wniosek:
+- aktualizacja stanu kandydata nie następuje po pierwszym write’ie `Marg_n`
+- następuje dopiero po przejściu obu gałęzi `Marg_n/Marg_o`
+- praktycznie wygląda to jak:
+  1. zapis parowego wyniku `Marg_n`
+  2. zapis parowego wyniku `Marg_o`
+  3. dopiero potem `aktualizacja parametr w fkand`
+
+To bardzo mocno sugeruje, że Access agreguje wynik obu kierunków przed
+propagacją stanu do kandydata.
+
+Raport:
+- `logs/access_pairwise_to_fkand_transition_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

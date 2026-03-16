@@ -1119,6 +1119,39 @@ To jest dziś najbliższy odzyskany model realnego dispatchera statusu.
 Raport:
 - `logs/access_status_dispatcher_20260316.json`
 
+### Relacja `wyniki_EMC_prz -> aktualizacja parametr w fkand`
+
+To jest teraz jeden z najmocniejszych odzyskanych fragmentów końcówki
+workflow Accessa.
+
+Mamy:
+- dokładnie dwa write’y `wyniki_EMC_prz` w tej gałęzi LR:
+  - `Marg_n`
+  - `Marg_o`
+- i tylko jeden odzyskany marker:
+  - `aktualizacja parametr w fkand`
+
+Byte delta:
+- `Marg_n -> aktualizacja parametr = 3944`
+- `Marg_o -> aktualizacja parametr = 544`
+
+To bardzo mocno sugeruje:
+- Access nie aktualizuje stanu kandydata po pierwszym write’ie `Marg_n`
+- tylko po domknięciu pary gałęzi `Marg_n/Marg_o`
+
+Najbardziej prawdopodobny przebieg:
+1. zapis wyniku `Marg_n`
+2. zapis wyniku `Marg_o`
+3. agregacja do stanu kandydata
+4. `aktualizacja parametr w fkand`
+
+Czyli:
+- status kandydata wygląda na wynik agregacji obu kierunków zakłócenia,
+- nie pojedynczego write’a parowego
+
+Raport:
+- `logs/access_pairwise_to_fkand_transition_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych
