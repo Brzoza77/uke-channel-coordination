@@ -340,6 +340,49 @@ Wniosek praktyczny:
 - sama obecność azymutu i elewacji w payloadzie nie dowodzi jeszcze, że Access
   stosuje dodatkową 3D dyskryminację ponad standardowe użycie charakterystyk antenowych.
 
+## Status i rodzina `Wyniki_*`
+
+Najważniejszy artefakt:
+- `logs/access_status_results_analysis_20260316.json`
+
+Potwierdzone:
+- `Wyniki_b-i` / `Wyniki_i-b` budują naziemne wiersze DOC z `Wynik EMC-LR`
+  tylko wtedy, gdy:
+  - `Margines_b-i > 1` lub `Margines_i-b > 1`
+  - `Metoda < 2`
+- `Wyniki_b-iz` / `Wyniki_iz-b` są osobną gałęzią zagraniczną
+  z `Wynik EMC-LR`, gdy:
+  - `Metoda = 2`
+- `Wyniki_b-iss` / `Wyniki_iss-b` są osobną gałęzią SS
+  opartą o `Wynik EMC-SS`
+- `Wyniki_do_wydruku` wybiera kandydaty po:
+  - `Numer_przesla`
+  - `Status = 2`
+- `Wyniki do wydruku_tab4` używa tych samych pól kandydata,
+  ale bez filtra `Status = 2`
+
+Wniosek:
+- `Status` w `Czestotliwosc kandydujaca` nie wygląda na surowy wynik EMC,
+  tylko na flagę workflow / warstwy wydruku
+- `Wynik EMC-LR` jest źródłem surowych konfliktów parowych
+- `Wyniki_*` dopiero zamieniają ten wynik na końcowe wiersze raportowe
+
+Co jeszcze nie jest dowiedzione:
+- dokładne mapowanie kodów `Status` na etykiety użytkowe typu
+  `ACCEPTED / CONDITIONAL / REJECTED`
+- czy `Status = 2` oznacza:
+  - kandydat wybrany do wydruku
+  - kandydat raportowany
+  - kandydat konfliktowy
+  - czy po prostu kandydat z określonej sekcji raportu
+
+Praktycznie:
+- nie powinniśmy próbować mapować `Status` 1:1 na nasz końcowy status kanału
+  bez kolejnych danych
+- bardziej wiarygodne jest traktowanie:
+  - `Wynik EMC-LR` jako warstwy obliczeniowej
+  - `Status` jako warstwy organizacji / wydruku / wyboru kandydata
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
