@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from functools import lru_cache
 from math import acos, asin, atan2, cos, degrees, log10, radians, sin, sqrt
@@ -23,7 +24,7 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-access-fkand-update-2026-03-16"
+ENGINE_VERSION = "hcm-access-fkand-dual-path-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -168,6 +169,18 @@ class CandidateFrequencyRecord:
     access_fkand_n_nad: int = 0
     access_fkand_n_odb: int = 0
     access_fkand_update_notes: list[str] = field(default_factory=list)
+    access_fkand_problem_path_margnad_db: Optional[float] = None
+    access_fkand_problem_path_margodb_db: Optional[float] = None
+    access_fkand_problem_path_n_nad: int = 0
+    access_fkand_problem_path_n_odb: int = 0
+    access_fkand_incompatible_path_margnad_db: Optional[float] = None
+    access_fkand_incompatible_path_margodb_db: Optional[float] = None
+    access_fkand_incompatible_path_n_nad: int = 0
+    access_fkand_incompatible_path_n_odb: int = 0
+    access_fkand_problem_only_count: int = 0
+    access_fkand_blocking_only_count: int = 0
+    access_fkand_overlap_count: int = 0
+    access_fkand_dual_path_notes: list[str] = field(default_factory=list)
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -433,6 +446,92 @@ def infer_access_fkand_update_state(
     }
 
 
+def _pairwise_fkand_semantic_class(result: PairwiseEmcResult) -> str:
+    problem = _pairwise_result_is_problem(result)
+    blocking = bool(result.is_blocking and result.margin_db is not None)
+    red = bool(result.risk_level == "red" and result.margin_db is not None)
+
+    if problem and not blocking and not red:
+        return "problem_only"
+    if (not problem) and blocking:
+        return "blocking_only"
+    if problem and blocking and red:
+        return "problem_plus_blocking_plus_red"
+    if problem and blocking:
+        return "problem_plus_blocking"
+    return "clean_or_unclassified"
+
+
+def _branch_dual_fkand_state(results: list[PairwiseEmcResult]) -> dict[str, Any]:
+    valid_results = [result for result in results if result.margin_db is not None]
+    classified: list[tuple[str, PairwiseEmcResult]] = [
+        (_pairwise_fkand_semantic_class(result), result) for result in valid_results
+    ]
+    problem_path_rows = [
+        result
+        for semantic_class, result in classified
+        if semantic_class in {"problem_only", "problem_plus_blocking", "problem_plus_blocking_plus_red"}
+    ]
+    incompatible_path_rows = [
+        result
+        for semantic_class, result in classified
+        if semantic_class in {"blocking_only", "problem_plus_blocking", "problem_plus_blocking_plus_red"}
+    ]
+    class_counts = Counter(semantic_class for semantic_class, _ in classified)
+    return {
+        "jest_wynik": bool(valid_results),
+        "problem_path_margin_db": _min_optional([result.margin_db for result in problem_path_rows]),
+        "problem_path_count": len(problem_path_rows),
+        "incompatible_path_margin_db": _min_optional([result.margin_db for result in incompatible_path_rows]),
+        "incompatible_path_count": len(incompatible_path_rows),
+        "problem_only_count": class_counts["problem_only"],
+        "blocking_only_count": class_counts["blocking_only"],
+        "overlap_count": class_counts["problem_plus_blocking"] + class_counts["problem_plus_blocking_plus_red"],
+        "has_problem_path": bool(problem_path_rows),
+        "has_incompatible_path": bool(incompatible_path_rows),
+    }
+
+
+def infer_access_fkand_dual_path_state(
+    pairwise_results: list[PairwiseEmcResult],
+) -> dict[str, Any]:
+    results_n = [result for result in pairwise_results if result.direction == "A->B"]
+    results_o = [result for result in pairwise_results if result.direction == "B->A"]
+    state_n = _branch_dual_fkand_state(results_n)
+    state_o = _branch_dual_fkand_state(results_o)
+
+    notes: list[str] = []
+    if state_n["has_problem_path"] or state_o["has_problem_path"]:
+        notes.append("Problem-path rows detected via problem-only / overlap classes")
+    else:
+        notes.append("No problem-path rows detected")
+    if state_n["has_incompatible_path"] or state_o["has_incompatible_path"]:
+        notes.append("Incompatible-path rows detected via blocking-only / overlap classes")
+    else:
+        notes.append("No incompatible-path rows detected")
+    if state_n["blocking_only_count"] or state_o["blocking_only_count"]:
+        notes.append("Blocking-only rows likely belong to status-niekompatybilna branch")
+    if state_n["problem_only_count"] or state_o["problem_only_count"]:
+        notes.append("Problem-only rows likely belong to problem_kons / decyzja_o_koordynacji branch")
+    if state_n["overlap_count"] or state_o["overlap_count"]:
+        notes.append("Overlap rows may sit at the bridge between problem bookkeeping and incompatible fkand update")
+
+    return {
+        "problem_path_margodb_db": state_n["problem_path_margin_db"],
+        "problem_path_margnad_db": state_o["problem_path_margin_db"],
+        "problem_path_n_odb": state_n["problem_path_count"],
+        "problem_path_n_nad": state_o["problem_path_count"],
+        "incompatible_path_margodb_db": state_n["incompatible_path_margin_db"],
+        "incompatible_path_margnad_db": state_o["incompatible_path_margin_db"],
+        "incompatible_path_n_odb": state_n["incompatible_path_count"],
+        "incompatible_path_n_nad": state_o["incompatible_path_count"],
+        "problem_only_count": state_n["problem_only_count"] + state_o["problem_only_count"],
+        "blocking_only_count": state_n["blocking_only_count"] + state_o["blocking_only_count"],
+        "overlap_count": state_n["overlap_count"] + state_o["overlap_count"],
+        "dual_path_notes": notes,
+    }
+
+
 def build_candidate_frequency_record(
     request: WlrRequest,
     assessment: ChannelAssessment,
@@ -470,6 +569,7 @@ def build_candidate_frequency_record(
         inferred_uke_like_status = "REJECTED"
     access_like_state = infer_access_like_candidate_state(pairwise_results, worst_duplex_margin_db, red_count)
     access_fkand_state = infer_access_fkand_update_state(pairwise_results)
+    access_fkand_dual_path_state = infer_access_fkand_dual_path_state(pairwise_results)
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -512,6 +612,18 @@ def build_candidate_frequency_record(
         access_fkand_n_nad=access_fkand_state["n_nad"],
         access_fkand_n_odb=access_fkand_state["n_odb"],
         access_fkand_update_notes=access_fkand_state["update_notes"],
+        access_fkand_problem_path_margnad_db=access_fkand_dual_path_state["problem_path_margnad_db"],
+        access_fkand_problem_path_margodb_db=access_fkand_dual_path_state["problem_path_margodb_db"],
+        access_fkand_problem_path_n_nad=access_fkand_dual_path_state["problem_path_n_nad"],
+        access_fkand_problem_path_n_odb=access_fkand_dual_path_state["problem_path_n_odb"],
+        access_fkand_incompatible_path_margnad_db=access_fkand_dual_path_state["incompatible_path_margnad_db"],
+        access_fkand_incompatible_path_margodb_db=access_fkand_dual_path_state["incompatible_path_margodb_db"],
+        access_fkand_incompatible_path_n_nad=access_fkand_dual_path_state["incompatible_path_n_nad"],
+        access_fkand_incompatible_path_n_odb=access_fkand_dual_path_state["incompatible_path_n_odb"],
+        access_fkand_problem_only_count=access_fkand_dual_path_state["problem_only_count"],
+        access_fkand_blocking_only_count=access_fkand_dual_path_state["blocking_only_count"],
+        access_fkand_overlap_count=access_fkand_dual_path_state["overlap_count"],
+        access_fkand_dual_path_notes=access_fkand_dual_path_state["dual_path_notes"],
         pairwise_results=pairwise_results,
     )
 

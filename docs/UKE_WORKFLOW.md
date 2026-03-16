@@ -1486,3 +1486,61 @@ To jest dziś najmocniejszy roboczy model:
 
 Raport:
 - `logs/fkand_mismatch_classes_20260316.json`
+
+### Eksperymentalny `fkand` dwutorowy
+
+Do silnika został dodany eksperymentalny model `fkand`, który przechowuje
+osobno:
+- `problem_path`
+  - ścieżkę zbliżoną do:
+    - `problem_kons`
+    - `TD p-gr`
+    - `Problem.decyzja_o_koordynacji`
+- `incompatible_path`
+  - ścieżkę zbliżoną do:
+    - `status niekompatybilna`
+    - `wyniki_EMC_prz`
+    - `aktualizacja parametr w fkand`
+
+Nowe pola poziomu kandydata:
+- `access_fkand_problem_path_margnad_db`
+- `access_fkand_problem_path_margodb_db`
+- `access_fkand_problem_path_n_nad`
+- `access_fkand_problem_path_n_odb`
+- `access_fkand_incompatible_path_margnad_db`
+- `access_fkand_incompatible_path_margodb_db`
+- `access_fkand_incompatible_path_n_nad`
+- `access_fkand_incompatible_path_n_odb`
+- `access_fkand_problem_only_count`
+- `access_fkand_blocking_only_count`
+- `access_fkand_overlap_count`
+
+Na benchmarku:
+- `BT10561C-BT10853C-001_0_20260312114554`
+
+wyszło:
+- `combo_counter = {'both_paths': 44}`
+
+Czyli:
+- ten benchmark jest zdominowany przez kandydaty, w których obie ścieżki są
+  aktywne jednocześnie
+- dlatego sam `BT10561...` nie wystarcza do rozróżnienia, która ścieżka jest
+  dominującym driverem finalnego `Status`
+
+Requested kanał:
+- `10'/10 V`
+- ma:
+  - `problem_path_n_odb = 4`
+  - `problem_path_n_nad = 4`
+  - `incompatible_path_n_odb = 4`
+  - `incompatible_path_n_nad = 4`
+  - `overlap_count = 8`
+
+Wniosek praktyczny:
+- dual-path `fkand` jest dobrym krokiem konstrukcyjnym,
+  bo przestajemy mieszać dwie różne procedury Accessa w jednym liczniku
+- ale do dalszego strojenia trzeba patrzeć nie tylko na benchmark `BT10561...`,
+  lecz także na szerszą paczkę trudnych przypadków `80 GHz`
+
+Raport:
+- `logs/BT10561C-BT10853C-001_0_20260312114554_experimental_fkand_dual_path_20260316.json`
