@@ -568,6 +568,50 @@ Wniosek:
 Raport:
 - `logs/access_fkand_recordset_search_20260316.json`
 
+## Mapa obiektów DAO
+
+Po złożeniu dotychczasowych śladów da się już zrobić użyteczną mapę nazw
+`DAO/Recordset/QueryDef` do ich lokalnych ról w workflow Accessa.
+
+Najważniejsze mapowania:
+- `dbb`
+  - `CurrentDb`, główny uchwyt bazy
+- `db`
+  - lokalny uchwyt bazy / `CurrentDb`
+- `myq`
+  - obiekt `QueryDef`, silnie przeciążony między procedurami
+- `filen`
+  - przeciążony `Recordset`
+  - w torze naziemnym:
+    - `przeslo badane`
+  - w torze NSS:
+    - wynik zapytania selekcyjnego
+- `filep`
+  - rekordset przęsła problemowego / zakłócającego
+- `filepk`
+  - writer do `problem_kons`
+- `file`
+  - writer warstwy `Dane_EMC` / masek nadajnika
+- `set_wybor`
+  - rekordset selekcji NSS/LR
+- `zap_wybor`
+  - parametryzowany `QueryDef` dla tej selekcji
+- `zap_char_LR` / `set_char_LR`
+  - pobranie charakterystyk anten LR
+- `zap_stacja_SS`
+  - lookup stacji satelitarnej
+
+Wniosek:
+- nazwy `file*` nie są globalnie unikalne
+- trzeba je czytać proceduralnie, blok po bloku
+- to jest ważne, bo inaczej łatwo pomylić:
+  - zapis `problem_kons`
+  - zapis `Dane_EMC`
+  - i szukany zapis `fkand`
+
+Raport:
+- `logs/access_dao_object_map_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:

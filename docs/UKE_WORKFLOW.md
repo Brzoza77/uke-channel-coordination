@@ -730,6 +730,40 @@ To wzmacnia wniosek, że setter marginów kandydata jest nadal ukryty:
 Raport:
 - `logs/access_fkand_recordset_search_20260316.json`
 
+## Mapa obiektów DAO
+
+Z dotychczasowych śladów da się już złożyć użyteczną mapę nazw
+`DAO/Recordset/QueryDef` do lokalnych ról w Accessie.
+
+Najważniejsze:
+- `dbb`
+  - główny `CurrentDb`
+- `db`
+  - lokalny uchwyt bazy
+- `myq`
+  - przeciążony `QueryDef`
+- `filen`
+  - przeciążony `Recordset`
+  - raz jako:
+    - `przeslo badane`
+  - raz jako:
+    - wynik zapytania selekcyjnego NSS/LR
+- `filep`
+  - rekordset przęsła problemowego / zakłócającego
+- `filepk`
+  - writer `problem_kons`
+- `file`
+  - writer warstwy `Dane_EMC` / masek nadajnika
+- `set_wybor` / `zap_wybor`
+  - selekcja NSS/LR
+
+To porządkuje dalszy reverse engineering:
+- nie szukamy już “którykolwiek `file.Update`”
+- tylko konkretnego obiektu DAO, który lokalnie reprezentuje `fkand`
+
+Raport:
+- `logs/access_dao_object_map_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:
