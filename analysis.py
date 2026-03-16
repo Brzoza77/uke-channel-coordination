@@ -55,6 +55,7 @@ EBAND_DENSE_REJECT_COUNT = 6
 EBAND_DENSE_CONDITIONAL_COUNT = 3
 SHARED_SITE_CROSS_EXTRA_ISOLATION_DB = 20.0
 SHARED_SITE_CROSS_MIN_DELTA_MHZ = 5000.0
+IPASOLINK_SHARED_SITE_CROSS_EXTRA_COUPLING_DB = 8.0
 ANNEX11_LOW_HEIGHT_LIMIT_M_ASL = 300.0
 ENABLE_ANNEX11_SEARCH_EXPANSION = False
 
@@ -1183,6 +1184,31 @@ def _apply_shared_site_cross_isolation(
     return _recompute_case_with_extra_isolation(case_data, SHARED_SITE_CROSS_EXTRA_ISOLATION_DB)
 
 
+def _apply_radio_specific_cross_hardening(
+    relationship: str,
+    case_data: dict[str, Any],
+    link_radio_type: Optional[str],
+) -> dict[str, Any]:
+    if relationship != "shared_site":
+        return case_data
+    emc_input = case_data.get("emc_input")
+    if emc_input is None:
+        return case_data
+    if not emc_input.direction.endswith("_cross"):
+        return case_data
+    if emc_input.overlap_ratio > 0.0:
+        return case_data
+    if emc_input.aggressor_atpc_db and emc_input.aggressor_atpc_db > 0.0:
+        return case_data
+    if emc_input.freq_delta_mhz < SHARED_SITE_CROSS_MIN_DELTA_MHZ:
+        return case_data
+
+    radio_type = (link_radio_type or "").lower()
+    if "ipasolink ex 80" in radio_type:
+        return _recompute_case_with_extra_isolation(case_data, -IPASOLINK_SHARED_SITE_CROSS_EXTRA_COUPLING_DB)
+    return case_data
+
+
 def _empirical_filter_discrimination_db(freq_delta_mhz: float, bw_mhz: float, overlap_ratio: float) -> float:
     if overlap_ratio >= 0.95 or freq_delta_mhz <= 1e-6:
         return 0.0
@@ -1409,6 +1435,11 @@ def estimate_interference_metrics(
         cross_pol_bonus_db=cross_pol_bonus_db,
         enable_mask_lookup=False,
     )
+
+    ab_incoming_cross = _apply_radio_specific_cross_hardening(relationship, ab_incoming_cross, link.emission_ba.radio_type)
+    ab_outgoing_cross = _apply_radio_specific_cross_hardening(relationship, ab_outgoing_cross, link.emission_ba.radio_type)
+    ba_incoming_cross = _apply_radio_specific_cross_hardening(relationship, ba_incoming_cross, link.emission_ab.radio_type)
+    ba_outgoing_cross = _apply_radio_specific_cross_hardening(relationship, ba_outgoing_cross, link.emission_ab.radio_type)
 
     ab_incoming_case = _worse_case(ab_incoming_direct, ab_incoming_cross)
     ab_outgoing_case = _worse_case(ab_outgoing_direct, ab_outgoing_cross)

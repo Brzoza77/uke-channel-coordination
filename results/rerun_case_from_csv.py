@@ -174,8 +174,9 @@ def _station_aware_case_key(row: dict[str, str], conflict: ConflictAssessment) -
 
 def _load_mapping_rules(path: Optional[Path]) -> dict[str, list[dict[str, object]]]:
     if not path or not path.exists():
-        return {"permit_exact": [], "exact": [], "family": []}
+        return {"row_exact": [], "permit_exact": [], "exact": [], "family": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
+    row_exact_rules = list(payload.get("row_exact_rules", []))
     permit_exact_rules = list(payload.get("permit_stable_rules", []))
     exact_rules = list(payload.get("stable_rules", []))
     family_rules: list[dict[str, object]] = []
@@ -199,7 +200,12 @@ def _load_mapping_rules(path: Optional[Path]) -> dict[str, list[dict[str, object
                     "row_count": row_count,
                 }
             )
-    return {"permit_exact": permit_exact_rules, "exact": exact_rules, "family": family_rules}
+    return {
+        "row_exact": row_exact_rules,
+        "permit_exact": permit_exact_rules,
+        "exact": exact_rules,
+        "family": family_rules,
+    }
 
 
 def _mapped_case_key(
@@ -233,6 +239,19 @@ def _mapped_case_key(
         pattern["station_side"] = "site_b"
 
     permit_number = row.get("uke_link_permit", "")
+    row_identity = {
+        "direction": row.get("direction", ""),
+        "section": row.get("section", ""),
+        "channel": row.get("channel", ""),
+        "polarization": row.get("polarization", ""),
+        "uke_station": row.get("uke_link_station", ""),
+    }
+    for rule in mapping_rules.get("row_exact", []):
+        if rule.get("permit") != permit_number:
+            continue
+        if rule.get("row") == row_identity:
+            return str(rule.get("best_subcase_key") or "")
+
     for rule in mapping_rules.get("permit_exact", []):
         if rule.get("permit") != permit_number:
             continue

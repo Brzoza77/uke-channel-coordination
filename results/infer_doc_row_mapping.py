@@ -88,6 +88,7 @@ def main() -> None:
 
     grouped: dict[tuple[str, ...], list[dict[str, object]]] = defaultdict(list)
     permit_grouped: dict[tuple[str, ...], list[dict[str, object]]] = defaultdict(list)
+    row_exact_rules: list[dict[str, object]] = []
 
     for permit, payload in alignment["permits"].items():
         for row in payload["rows"]:
@@ -118,6 +119,20 @@ def main() -> None:
                     "channel": row.get("channel"),
                     "polarization": row.get("polarization"),
                     "uke_station": row.get("uke_station"),
+                    "best_subcase_key": row.get("best_subcase_key"),
+                    "best_subcase_delta_db": row.get("best_subcase_delta_db"),
+                }
+            )
+            row_exact_rules.append(
+                {
+                    "permit": permit,
+                    "row": {
+                        "direction": row.get("direction", ""),
+                        "section": row.get("section", ""),
+                        "channel": row.get("channel", ""),
+                        "polarization": row.get("polarization", ""),
+                        "uke_station": row.get("uke_station", ""),
+                    },
                     "best_subcase_key": row.get("best_subcase_key"),
                     "best_subcase_delta_db": row.get("best_subcase_delta_db"),
                 }
@@ -200,9 +215,11 @@ def main() -> None:
         "stable_rule_count": len(stable_rules),
         "ambiguous_rule_count": len(ambiguous_rules),
         "permit_stable_rule_count": len(permit_stable_rules),
+        "row_exact_rule_count": len(row_exact_rules),
         "stable_rules": stable_rules,
         "ambiguous_rules": ambiguous_rules,
         "permit_stable_rules": permit_stable_rules,
+        "row_exact_rules": row_exact_rules,
         "patterns": patterns,
     }
 
