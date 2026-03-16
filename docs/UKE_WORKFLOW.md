@@ -677,6 +677,26 @@ Wniosek:
 Raport tej warstwy:
 - `logs/access_fk_update_layer_20260316.json`
 
+Eksperymentalne wejście w ten model w Pythonie pokazało na wzorcu:
+- `MargNad/MargOdb` z warstwy `fkand update` pokrywają się dziś z naszymi
+  obecnymi polami:
+  - `uke_like_margnad_db`
+  - `uke_like_margodb_db`
+- nowa warstwa dodaje jednak osobny, jawny stan Access-like:
+  - `jest_wynikN`
+  - `jest_wynikO`
+  - `N-nad`
+  - `N-odb`
+
+Wniosek praktyczny:
+- trafiliśmy najpewniej w dobrą warstwę workflow Accessa,
+- ale sama dodatkowa transformacja marginesów nie jest jeszcze odkryta,
+- więc kolejny postęp powinien iść w dokładny zapis VBA, który ustawia:
+  - `MargNad`
+  - `MargOdb`
+  - `N-nad`
+  - `N-odb`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:

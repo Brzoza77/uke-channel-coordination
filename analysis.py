@@ -23,7 +23,7 @@ from uke import (
 )
 from wlr import WlrRequest
 
-ENGINE_VERSION = "hcm-access-like-candidate-state-2026-03-16"
+ENGINE_VERSION = "hcm-access-fkand-update-2026-03-16"
 
 
 DEFAULT_REQUEST_OPERATOR = "Towerlink Poland Sp. z o.o."
@@ -161,6 +161,13 @@ class CandidateFrequencyRecord:
     access_like_status_code: int = 1
     access_like_status_label: str = "PENDING"
     access_like_state_notes: list[str] = field(default_factory=list)
+    access_fkand_jest_wynik_n: bool = False
+    access_fkand_jest_wynik_o: bool = False
+    access_fkand_margnad_db: Optional[float] = None
+    access_fkand_margodb_db: Optional[float] = None
+    access_fkand_n_nad: int = 0
+    access_fkand_n_odb: int = 0
+    access_fkand_update_notes: list[str] = field(default_factory=list)
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -379,6 +386,53 @@ def infer_access_like_candidate_state(
     }
 
 
+def infer_access_fkand_update_state(
+    pairwise_results: list[PairwiseEmcResult],
+) -> dict[str, Any]:
+    # Experimental bridge layer between wyniki_EMC_prz and wyniki_EMC_fk.
+    results_n = [result for result in pairwise_results if result.direction == "A->B"]
+    results_o = [result for result in pairwise_results if result.direction == "B->A"]
+
+    jest_wynik_n = any(result.margin_db is not None for result in results_n)
+    jest_wynik_o = any(result.margin_db is not None for result in results_o)
+
+    # Current best proxy: Access-like fkand update collapses directional N/O branches
+    # into receiver-side and transmitter-side candidate margins before status selection.
+    margodb_db = _min_optional([result.margin_db for result in results_n])
+    margnad_db = _min_optional([result.margin_db for result in results_o])
+
+    n_odb = sum(1 for result in results_n if _pairwise_result_is_problem(result))
+    n_nad = sum(1 for result in results_o if _pairwise_result_is_problem(result))
+
+    notes: list[str] = []
+    if jest_wynik_n:
+        notes.append("N branch produced at least one EMC result")
+    else:
+        notes.append("N branch produced no EMC result")
+    if jest_wynik_o:
+        notes.append("O branch produced at least one EMC result")
+    else:
+        notes.append("O branch produced no EMC result")
+    if margodb_db is not None:
+        notes.append("MargOdb derived from grouped N-branch worst margin")
+    if margnad_db is not None:
+        notes.append("MargNad derived from grouped O-branch worst margin")
+    if n_odb:
+        notes.append("N-odb counted from problem pairs in the N branch")
+    if n_nad:
+        notes.append("N-nad counted from problem pairs in the O branch")
+
+    return {
+        "jest_wynik_n": jest_wynik_n,
+        "jest_wynik_o": jest_wynik_o,
+        "margnad_db": margnad_db,
+        "margodb_db": margodb_db,
+        "n_nad": n_nad,
+        "n_odb": n_odb,
+        "update_notes": notes,
+    }
+
+
 def build_candidate_frequency_record(
     request: WlrRequest,
     assessment: ChannelAssessment,
@@ -415,6 +469,7 @@ def build_candidate_frequency_record(
     else:
         inferred_uke_like_status = "REJECTED"
     access_like_state = infer_access_like_candidate_state(pairwise_results, worst_duplex_margin_db, red_count)
+    access_fkand_state = infer_access_fkand_update_state(pairwise_results)
     return CandidateFrequencyRecord(
         plan_symbol=assessment.candidate.plan_symbol,
         channel_ab=assessment.candidate.channel_ab,
@@ -450,6 +505,13 @@ def build_candidate_frequency_record(
         access_like_status_code=access_like_state["status_code"],
         access_like_status_label=access_like_state["status_label"],
         access_like_state_notes=access_like_state["state_notes"],
+        access_fkand_jest_wynik_n=access_fkand_state["jest_wynik_n"],
+        access_fkand_jest_wynik_o=access_fkand_state["jest_wynik_o"],
+        access_fkand_margnad_db=access_fkand_state["margnad_db"],
+        access_fkand_margodb_db=access_fkand_state["margodb_db"],
+        access_fkand_n_nad=access_fkand_state["n_nad"],
+        access_fkand_n_odb=access_fkand_state["n_odb"],
+        access_fkand_update_notes=access_fkand_state["update_notes"],
         pairwise_results=pairwise_results,
     )
 
