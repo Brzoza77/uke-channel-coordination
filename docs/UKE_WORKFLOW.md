@@ -1010,6 +1010,29 @@ Czyli najbardziej prawdopodobny obraz końcówki jest teraz taki:
 Raport:
 - `logs/access_nrsn_role_20260316.json`
 
+### `status_kand`
+
+Ten symbol udało się już sensownie odseparować od `statusfk`.
+
+Najważniejsze:
+- `status_kand` występuje tylko raz w korpusie ASCII `MDB`
+- siedzi bezpośrednio przy:
+  - `wstaw_status`
+  - `nrsn`
+- nie ma czytelnego śladu:
+  - `status_kand = ...`
+  - ani jawnego `wstaw_status(...)`
+- dynamiczny `UPDATE DISTINCTROW ... SET [status] = ...` jest widoczny,
+  ale nie w tym samym lokalnym bloku
+
+To wzmacnia model:
+- `statusfk` jako akumulator roboczy
+- `status_kand` jako późniejsza, finalna wartość lokalna
+- osobny handoff do dynamicznego zapisu `Status`
+
+Raport:
+- `logs/access_status_kand_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

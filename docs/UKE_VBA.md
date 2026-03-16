@@ -790,6 +790,40 @@ Dodatkowo:
 Raport:
 - `logs/access_nrsn_role_20260316.json`
 
+## `status_kand`
+
+Osobna analiza `status_kand` pozwala już dość wyraźnie oddzielić go od
+`statusfk`.
+
+Najważniejsze ustalenia:
+- `status_kand` występuje tylko raz w ASCII corpus `MDB`
+- siedzi bezpośrednio obok:
+  - `wstaw_status`
+  - `nrsn`
+  - `obliczenia_EMC_POL_ZAGR`
+- nie ma odzyskanego śladu w rodzaju:
+  - `status_kand = ...`
+  - `wstaw_status(...)`
+- dynamiczny SQL:
+  - `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [status] = ...`
+  jest widoczny, ale w innym fragmencie korpusu niż sam `status_kand`
+
+Wniosek:
+- `status_kand` wygląda na lokalną końcową wartość proceduralną
+- `statusfk` wygląda na wcześniejszy akumulator stanu
+- a między wyznaczeniem `status_kand` a zapisem do tabeli najpewniej istnieje
+  jeszcze pośredni handoff:
+  - helper
+  - albo dynamiczny SQL składany w innym miejscu
+
+Najbardziej prawdopodobny model:
+1. `statusfk` zbiera stan roboczy
+2. `wstaw_status` wyznacza lub dispatchuje `status_kand`
+3. osobna warstwa wykonuje `UPDATE ... SET [status] = ...`
+
+Raport:
+- `logs/access_status_kand_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
