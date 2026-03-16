@@ -1252,3 +1252,48 @@ Wniosek praktyczny:
 
 Raport:
 - `logs/BT10561C-BT10853C-001_0_20260312114554_fkand_aggregation_compare_20260316.json`
+
+### Edge case rozstrzygający `problem` vs `blocking/red`
+
+Udało się znaleźć pojedynczy kandydat, który rozdziela te semantyki:
+- kandydat:
+  - `14/14' H`
+- gałąź:
+  - `O` / `B->A`
+- bieżące:
+  - `N-nad = 7`
+- liczniki gałęzi:
+  - `problem = 7`
+  - `negative = 7`
+  - `blocking = 8`
+  - `red = 8`
+
+Różnicę robi dokładnie jeden wiersz:
+- permit:
+  - `3840.2017.6`
+- konflikt:
+  - `adjacent`
+  - `external`
+- metryki:
+  - `margin_db = 0.7054`
+  - `ci_db = 70.70`
+  - `degradation_db = 0.2946`
+  - `overlap_ratio = 0.0`
+  - `effective_freq_delta_mhz = 156.25`
+- klasyfikacja:
+  - `problem = false`
+  - `blocking = true`
+  - `red = true`
+
+Wniosek praktyczny:
+- to jest mocny argument, że agregacja `fkand` w Accessie jest bliżej:
+  - `problem/negative`
+  niż:
+  - `blocking/red`
+- innymi słowy:
+  - obecna logika `N-nad/N-odb` oparta o `_pairwise_result_is_problem`
+    wygląda bliżej Accessa niż szersze liczenie po `risk_level == red`
+    albo po `is_blocking`
+
+Raport:
+- `logs/fkand_edge_case_20260316.json`
