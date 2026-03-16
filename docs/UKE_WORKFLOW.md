@@ -1196,3 +1196,59 @@ Raport:
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych
+
+### Porównanie hipotez agregacji `fkand`
+
+Na wzorcu:
+- `testy/BT10561C-BT10853C-001_0_20260312114554.wlr`
+
+porównaliśmy kilka hipotez budowy pól kandydata:
+- margines jako:
+  - `min(valid)`
+  - `min(problem)`
+  - `min(negative)`
+  - `min(blocking)`
+  - `min(red)`
+- liczniki jako:
+  - liczba wszystkich poprawnych wyników gałęzi
+  - liczba wyników problemowych
+  - liczba wyników z ujemnym marginesem
+  - liczba wyników blocking
+  - liczba wyników red
+
+Najważniejsze wyniki:
+- dla wszystkich `44` kandydatów wzorca:
+  - bieżące `access_fkand_margodb_db` i `access_fkand_margnad_db`
+    są równe każdej z hipotez `min(...)`
+- dla liczników:
+  - bieżące `N-odb` zgadza się z:
+    - `problem`
+    - `negative`
+    - `blocking`
+    - `red`
+    dla `44/44`
+  - bieżące `N-nad` zgadza się z:
+    - `problem`
+    - `negative`
+    dla `44/44`
+    - `blocking`
+    - `red`
+    dla `43/44`
+- hipoteza liczenia wszystkich poprawnych wyników gałęzi jest wyraźnie zła:
+  - średni `valid - problem` na gałąź wynosi `373.56`
+  - dla requested kanału `10'/10 V` mamy:
+    - `count_valid = 355`
+    - `count_problem = 4`
+
+Wniosek praktyczny:
+- `N-nad/N-odb` są zdecydowanie bliżej liczenia konfliktów
+  niż liczenia wszystkich poprawnych wyników gałęzi
+- na tym wzorcu marginesy nie rozstrzygają jeszcze semantyki,
+  bo wszystkie kanały są odrzucone i najgorszy wynik gałęzi jest
+  jednocześnie wynikiem problemowym
+- kolejny sensowny krok to znaleźć ten pojedynczy przypadek `43/44`,
+  gdzie `problem` rozjeżdża się z `blocking/red`, bo to jest dziś
+  najlepszy kandydat do odróżnienia dokładnej semantyki Accessa
+
+Raport:
+- `logs/BT10561C-BT10853C-001_0_20260312114554_fkand_aggregation_compare_20260316.json`
