@@ -1066,6 +1066,30 @@ To wzmacnia hipotezę, że końcowy zapis `Status` jest realizowany podobnie:
 Raport:
 - `logs/access_status_write_handoff_20260316.json`
 
+### Ukryty writer statusu
+
+Najlepszy obecnie trop dla ukrytego writera statusu wygląda tak:
+
+- widoczny `UPDATE DISTINCTROW ... SET [status] = ...` nie siedzi przy
+  `wstaw_status`
+- siedzi za to przy:
+  - `zap_char_LR`
+  - `set_char_LR`
+  - komunikatach o braku / zbyt małej liczbie punktów charakterystyki
+
+Czyli:
+- sama decyzja o stanie kandydata jest najpewniej wyznaczana wcześniej
+- ale writeback `Status` jest już związany z gałęzią walidacji danych antenowych
+
+Dodatkowo:
+- nie ma lokalnego `db.Execute` ani `RunSQL` w tym samym oknie
+- więc najbardziej prawdopodobny model to:
+  1. lokalna gałąź przygotowuje `UPDATE ... SET [status] = ...`
+  2. osobny dispatcher SQL wykonuje ten update później
+
+Raport:
+- `logs/access_hidden_status_writer_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

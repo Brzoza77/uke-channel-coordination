@@ -868,6 +868,42 @@ Wniosek:
 Raport:
 - `logs/access_status_write_handoff_20260316.json`
 
+## Ukryty writer statusu
+
+Najmocniejszy obecnie trop dla ukrytego writera statusu nie siedzi przy
+`wstaw_status`, tylko przy walidacji charakterystyk anten.
+
+Najważniejsze obserwacje:
+- widoczny:
+  - `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET [status] = ...`
+  leży w sąsiedztwie:
+  - `zap_char_LR("identyf_przeslo") = ...`
+  - `Set set_char_LR = zap_char_LR.OpenRecordset()`
+  - komunikatów:
+    - `za mała liczba punktów`
+    - `brak charakterystyki`
+- najbliższe `db.Execute` / `dbb.Execute` nie są lokalne dla tego bloku
+- najbliższy jawny przykład:
+  - `strpyt = ...`
+  - `db.Execute strpyt`
+  występuje dopiero w innym fragmencie workflow
+
+Wniosek:
+- statusowy `UPDATE` jest prawdopodobnie przygotowywany w gałęzi walidacji
+  charakterystyk
+- ale jego wykonanie jest delegowane do osobnego helpera / dispatcher’a SQL
+- `wstaw_status` i `status_kand` nadal wyglądają na wcześniejszą warstwę
+  logiki biznesowej, a nie na sam moment wykonania SQL
+
+To daje dziś taki model:
+1. logika proceduralna wyznacza `status_kand`
+2. walidacja charakterystyk wpływa na finalną kwalifikację do zapisu
+3. osobny helper buduje / wykonuje:
+   - `UPDATE DISTINCTROW ... SET [status] = ...`
+
+Raport:
+- `logs/access_hidden_status_writer_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
