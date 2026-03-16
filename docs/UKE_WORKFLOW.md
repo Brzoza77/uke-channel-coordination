@@ -1297,3 +1297,51 @@ Wniosek praktyczny:
 
 Raport:
 - `logs/fkand_edge_case_20260316.json`
+
+### Sprawdzenie, czy to jest realny wzorzec
+
+Przeskanowanie całego benchmarku:
+- `testy/BT10561C-BT10853C-001_0_20260312114554.wlr`
+
+dało wynik:
+- `mismatch_row_count = 1`
+
+Czyli na tym wzorcu:
+- nie ma szerokiej klasy wierszy typu:
+  - `problem = false`
+  - `blocking/red = true`
+- jest dokładnie jeden taki przypadek
+
+Jego sygnatura:
+- gałąź:
+  - `B->A`
+- konflikt:
+  - `adjacent`
+- relacja:
+  - `external`
+- `overlap_ratio = 0.0`
+- dodatni margines:
+  - `margin_db = 0.7054`
+- wysoki `CI`:
+  - `70.70 dB`
+- mała degradacja:
+  - `0.2946 dB`
+- permit:
+  - `3840.2017.6`
+- kandydat:
+  - `14/14' H`
+
+Wniosek praktyczny:
+- to nie wygląda na szeroki wzorzec klasyfikacyjny w benchmarku
+- wygląda raczej na pojedynczy, wartościowy edge case
+- obecna interpretacja:
+  - `fkand counts ~= problem rows`
+  nadal jest mocna na tym wzorcu
+- ale ten jeden przypadek warto zachować jako test regresyjny, bo dobrze
+  odróżnia:
+  - `problem`
+  od
+  - `blocking/red`
+
+Raport:
+- `logs/fkand_pattern_scan_20260316.json`
