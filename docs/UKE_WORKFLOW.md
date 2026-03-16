@@ -951,6 +951,36 @@ Wniosek:
 Raport:
 - `logs/access_wstaw_status_20260316.json`
 
+### Relacja `Stan_wniosku_po_weryfikacji -> wstaw_status -> status_kand`
+
+Kolejna warstwa analizy pokazała, że końcówka workflow ma jeszcze poziom
+stanów pośrednich między `statusfk` a finalnym statusem kandydata.
+
+Najważniejsze markery:
+- `statusfk`
+- `stanp`
+- `stan_problem`
+- `stanprz`
+- `stanprzesla`
+- `Stan_wniosku_po_weryfikacji`
+- `wstaw_status`
+- `nrsn`
+- `status_kand`
+
+Najbardziej prawdopodobny model:
+1. `statusfk` jest akumulatorem stanu proceduralnego
+2. warstwa kwalifikacji/weryfikacji tworzy pośrednie projekcje `stan*`
+3. `Stan_wniosku_po_weryfikacji` kończy etap post-EMC
+4. `wstaw_status` mapuje wynik tej warstwy na końcowy `status_kand`
+5. później wykonywany jest zapis `Czestotliwosc kandydujaca.Status`
+
+To wzmacnia wcześniejszy wniosek:
+- finalny status kandydata nie jest prostą projekcją z `Wynik EMC-LR`
+- tylko wynikiem późniejszej procedury przejścia stanu
+
+Raport:
+- `logs/access_status_transition_20260316.json`
+
 To daje:
 - największą szansę na zbliżenie do metodologii UKE
 - bez natychmiastowego wejścia w najcięższy obszar danych terenowych

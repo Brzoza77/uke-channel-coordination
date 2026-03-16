@@ -718,6 +718,44 @@ Otwarte pytania:
 Raport:
 - `logs/access_wstaw_status_20260316.json`
 
+## Relacja `Stan_wniosku_po_weryfikacji -> wstaw_status -> status_kand`
+
+Po osobnym rozbiorze tej relacji widać już bardziej precyzyjny model przejścia
+stanu kandydata.
+
+Najważniejsze obserwacje:
+- `statusfk` wygląda na akumulator roboczego stanu kandydata
+- obok niego pojawiają się dodatkowe lokalne projekcje stanu:
+  - `stanp`
+  - `stan_problem`
+  - `stanprz`
+  - `stanprzesla`
+- `nrsn` pojawia się bezpośrednio obok `wstaw_status`
+- `status_kand` pojawia się w tym samym bloku co `wstaw_status`
+
+Najbardziej prawdopodobna interpretacja:
+1. `statusfk` zbiera stan proceduralny podczas obliczeń
+2. warstwa kwalifikacji i weryfikacji wyprowadza pomocnicze stany `stan*`
+3. `Stan_wniosku_po_weryfikacji` kończy etap post-EMC
+4. `wstaw_status` korzysta z wyniku tej warstwy i z pomocniczego kodu
+   związanego z `nrsn`
+5. wyznaczany jest końcowy `status_kand`
+6. dopiero potem wykonywany jest zapis do:
+   - `Czestotliwosc kandydujaca.Status`
+
+Wniosek:
+- `status_kand` wygląda bardziej na końcową wartość logiczną niż na sam
+  akumulator `statusfk`
+- a `wstaw_status` na helper przejścia:
+  - `verification state -> final candidate state`
+
+Dodatkowy wynik:
+- przeszukanie `strings -el` nie dało nowego materiału dla tej relacji
+- czyli obecnie najlepsze dowody nadal są w korpusie ASCII
+
+Raport:
+- `logs/access_status_transition_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
