@@ -697,6 +697,21 @@ Wniosek praktyczny:
   - `N-nad`
   - `N-odb`
 
+Dodatkowy ważny wynik z przeszukania VBA:
+- `Marg_n` i `Marg_o` są widoczne literalnie i mają jasne call-site do `wyniki_EMC_prz`
+- `MargNad`, `MargOdb`, `N-nad`, `N-odb` są widoczne jako zmienne procedury
+- ale nie ma dziś w surowych stringach literalnego:
+  - `UPDATE ... SET [MargNad] = ...`
+  - ani odpowiednika dla `MargOdb`, `N-nad`, `N-odb`
+
+To sugeruje, że Access zapisuje te pola najpewniej przez:
+- `Recordset.Edit / Update`
+- albo krótszy dynamiczny SQL składany z fragmentów
+- a nie przez długi, jawny `UPDATE` taki jak dla `Status`
+
+Raport:
+- `logs/access_margin_traces_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:

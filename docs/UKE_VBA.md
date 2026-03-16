@@ -483,6 +483,47 @@ Wniosek:
 Raport tej warstwy:
 - `logs/access_fk_update_layer_20260316.json`
 
+## Margin traces w VBA
+
+Przeszukanie `MDB` stricte pod kątem rodziny `margin` dało ważne rozróżnienie:
+
+Jawnie widoczne w stringach:
+- `Marg_n`
+- `Marg_o`
+- `MargNad`
+- `MargOdb`
+- `N-nad`
+- `N-odb`
+
+Co jest potwierdzone:
+- `Marg_n` i `Marg_o` są literalnie opisane i przekazywane do:
+  - `wyniki_EMC_prz`
+- `MargNad`, `MargOdb`, `N-nad`, `N-odb` występują w tym samym bloku lokalnych zmiennych,
+  co wskazuje na ich użycie w tej samej procedurze
+- po `wyniki_EMC_prz` pojawia się blok:
+  - `aktualizacja parametr w fkand`
+
+Co jest równie ważne:
+- nie znaleziono literalnego SQL-a w rodzaju:
+  - `UPDATE ... SET [MargNad] = ...`
+  - `UPDATE ... SET [MargOdb] = ...`
+  - `UPDATE ... SET [N-nad] = ...`
+  - `UPDATE ... SET [N-odb] = ...`
+- natomiast dla innych pól kandydata są jawne SQL-e:
+  - `UPDATE DISTINCTROW [Czestotliwosc kandydujaca] SET ... [status] = ...`
+  - `UPDATE [Czestotliwosc kandydujaca] SET T_dane_koor = Null, R_dane_koor = Null ...`
+
+Wniosek:
+- Access z dużym prawdopodobieństwem zapisuje `MargNad/MargOdb/N-nad/N-odb`
+  inaczej niż przez długi, literalny `UPDATE` osadzony w stringach
+- najbardziej prawdopodobne ścieżki:
+  - `DAO.Recordset.Edit / Update`
+  - krótki dynamiczny SQL składany z fragmentów
+  - albo fragment VBA, którego pełnej treści nie widać w obecnym zrzucie `strings`
+
+Raport:
+- `logs/access_margin_traces_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
