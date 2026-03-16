@@ -1544,3 +1544,68 @@ Wniosek praktyczny:
 
 Raport:
 - `logs/BT10561C-BT10853C-001_0_20260312114554_experimental_fkand_dual_path_20260316.json`
+
+### Ocena praktyczna dual-path `fkand`
+
+Na paczce:
+- `1106`
+- `1234`
+- `1308`
+- `1378`
+- `1905`
+- `3961`
+- `BT10561...`
+
+dual-path daje już pierwszą realną informację decyzyjną.
+
+Podsumowanie:
+- `no_path = 32`
+- `problem_path_only = 16`
+- `both_paths = 260`
+- `incompatible_path_only = 0`
+
+Statusy per combo:
+- `no_path`
+  - `ACCEPTED = 32`
+- `problem_path_only`
+  - `ACCEPTED = 16`
+- `both_paths`
+  - `CONDITIONAL = 33`
+  - `REJECTED = 227`
+
+Najważniejszy sygnał:
+- gdy `incompatible_path = false`
+  - wszystkie przypadki są `ACCEPTED`
+- gdy `incompatible_path = true`
+  - nie ma już żadnego `ACCEPTED`
+  - zostają tylko:
+    - `CONDITIONAL`
+    - `REJECTED`
+
+To jest bardzo ważne, bo mówi:
+- sama ścieżka `problem_path` nie wystarcza do odrzucenia
+  - mamy `16` kanałów `ACCEPTED`, które mają tylko `problem_path`
+- ale obecność `incompatible_path` wygląda jak mocny warunek wejścia do klasy:
+  - `nie ACCEPTED`
+
+Średnie per status:
+- `ACCEPTED`
+  - `avg_problem_count = 0.67`
+  - `avg_incompatible_count = 0.0`
+- `CONDITIONAL`
+  - `avg_problem_count = 2.33`
+  - `avg_incompatible_count = 2.48`
+- `REJECTED`
+  - `avg_problem_count = 7.52`
+  - `avg_incompatible_count = 7.11`
+
+Wniosek praktyczny:
+- `incompatible_path` wygląda na dużo lepszy kandydat do sterowania końcowym
+  statusem kanału niż surowy, pojedynczy licznik `problem`
+- to nie domyka jeszcze rozróżnienia:
+  - `CONDITIONAL` vs `REJECTED`
+- ale daje już bardzo mocny separator:
+  - `ACCEPTED` vs `nie ACCEPTED`
+
+Raport:
+- `logs/fkand_dual_path_case_evaluation_20260316.json`
