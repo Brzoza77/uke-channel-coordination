@@ -1,70 +1,91 @@
 # UKE Channel Coordination
 
-Silnik analizy zaklocen dla linii radiowych, oparty o wejscie `WLR` i wewnetrzna baze `SQLite` budowana z publikacji `MDB` UKE.
+Narzędzie do analizy koordynacji częstotliwości dla linii radiowych na podstawie:
 
-Projekt sklada sie z:
-- silnika obliczeniowego w `analysis.py`
-- parsera WLR w `wlr.py`
-- warstwy danych i planow w `uke.py` oraz `data/`
-- API i raportow PDF w `app.py`
-- frontendu dashboardowego w `index.html` i `static/`
+- wejścia `WLR`
+- wewnętrznej bazy `SQLite`
+- budowanej z publikacji `MDB` UKE
 
-Uwaga:
-- pliki `*.mdb`, `*.rar`, `logs/`, `reports/`, `data/*.sqlite` oraz `.vendor/` nie sa przechowywane w repo
-- podstawowym zrodlem danych jest teraz `data/uke_workflow.sqlite`, odswiezane z publikacji UKE
+Projekt zawiera:
 
-Aktualna wersja silnika:
-- `hcm-margin-first-2026-03-15`
+- silnik analizy w [analysis.py](/home/brzoza/uke/analysis.py)
+- parser `WLR` w [wlr.py](/home/brzoza/uke/wlr.py)
+- warstwę danych i planów w [uke.py](/home/brzoza/uke/uke.py)
+- API FastAPI i PDF w [app.py](/home/brzoza/uke/app.py)
+- frontend dashboardowy w [index.html](/home/brzoza/uke/index.html) i `static/`
+- zestaw skryptów reverse engineeringu w `results/`
 
-## Szybki start
+Podstawowym źródłem danych jest teraz:
 
-Uruchomienie API:
+- [data/uke_workflow.sqlite](/home/brzoza/uke/data/uke_workflow.sqlite)
 
-```bash
-cd /home/brzoza/uke
-./run.sh
-```
+czyli lokalna `SQLite` budowana z publikacji `MDB` UKE.
 
-Domyslnie aplikacja startuje na:
+## Instalacja
 
-```text
-http://0.0.0.0:8012
-```
-
-Mozna zmienic port:
+### 1. Sklonuj repo
 
 ```bash
-PORT=8013 ./run.sh
+git clone https://github.com/Brzoza77/uke-channel-coordination.git
+cd uke-channel-coordination
 ```
 
-## Co robi system
+### 2. Utwórz środowisko i zainstaluj zależności
 
-1. Wczytuje plik `WLR`
-2. Parsuje zadane przeslo, plan, czestotliwosci, polaryzacje i parametry radiowe
-3. Dobiera kandydackie linki z wewnetrznego katalogu UKE zbudowanego z `MDB`
-4. Liczy konflikty:
-   - co zakloca nas
-   - co my zaklocamy
-5. Klasyfikuje kanaly jako:
-   - `ACCEPTED`
-   - `CONDITIONAL`
-   - `REJECTED`
-6. Wystawia wynik przez FastAPI i dashboard
-7. Potrafi wygenerowac raport PDF
+Najprościej:
 
-## Najwazniejsze katalogi
+```bash
+./bootstrap_mdb.sh
+source .venv/bin/activate
+```
 
-- `analysis.py` - glowny silnik
-- `app.py` - FastAPI, raport PDF, mapa i odpowiedzi API
-- `wlr.py` - parser plikow WLR
-- `uke.py` - ladowanie danych i planow z wewnetrznej SQLite UKE
-- `static/` - frontend
-- `data/` - lokalna baza SQLite budowana z `MDB`
-- `testy/` - pary `wlr-doc` do porownan z UKE
-- `results/` - skrypty pomocnicze, tuning, ekstrakcje MDB
-- `hcm/` - materialy HCM
+Skrypt instaluje:
 
-## Odswiezanie bazy UKE
+- runtime aplikacji z [requirements.txt](/home/brzoza/uke/requirements.txt)
+- zależności MDB z [requirements-mdb.txt](/home/brzoza/uke/requirements-mdb.txt)
+
+Ręcznie:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-mdb.txt
+```
+
+### 3. Wymagania systemowe
+
+Do pełnego odświeżania publikacji UKE przydają się:
+
+- `python3`
+- `unrar` kompatybilny ekstraktor:
+  - preferowany `unar`
+  - fallback `7z`
+
+Na tej maszynie smoke test był wykonywany z:
+
+- `unar`
+- `7z`
+
+## Zależności Pythona
+
+Runtime aplikacji:
+
+- `fastapi==0.92.0`
+- `uvicorn==0.17.6`
+- `pydantic==1.10.22`
+- `openpyxl==3.0.9`
+- `reportlab==3.6.12`
+- `python-multipart==0.0.5`
+
+Warstwa MDB / Access:
+
+- `access_parser==0.0.6`
+- `construct==2.10.70`
+- `tabulate==0.10.0`
+
+## Odświeżenie bazy UKE
 
 Jednym poleceniem:
 
@@ -73,36 +94,141 @@ Jednym poleceniem:
 ```
 
 Skrypt:
-- sprawdza publikacje UKE,
-- pobiera najnowsze `lr_konsultacja`,
-- rozpakowuje `MDB`,
-- buduje `data/uke_workflow.sqlite`,
-- odswieza artefakty workflow.
 
-Domyslnie nie pobiera archiwum planow, bo plany kanalowe sa odtwarzane z `MDB`.
+1. sprawdza stronę publikacji UKE
+2. pobiera najnowsze archiwum `lr_konsultacja`
+3. rozpakowuje `MDB`
+4. buduje `data/uke_workflow.sqlite`
+5. odświeża artefakty workflow w `logs/`
+
+Przydatne warianty:
+
+Tylko lokalne `MDB`, bez sprawdzania publikacji:
+
+```bash
+UKE_AUTO_UPDATE=0 ./refresh_uke_sqlite.sh
+```
+
+Sprawdzenie publikacji bez pobierania:
+
+```bash
+python3 results/update_uke_publication.py --check-only
+```
+
+Zmiana katalogu roboczego pobrań/ekstrakcji:
+
+```bash
+UKE_SOURCE_ROOT=/ścieżka/robocza ./refresh_uke_sqlite.sh
+```
+
+## Uruchomienie aplikacji
+
+Po aktywacji środowiska:
+
+```bash
+./run.sh
+```
+
+Domyślnie aplikacja startuje na:
+
+```text
+http://0.0.0.0:8012
+```
+
+Zmiana portu:
+
+```bash
+PORT=8013 ./run.sh
+```
+
+## Podstawowa obsługa użytkownika
+
+### 1. Odśwież źródło UKE
+
+```bash
+./refresh_uke_sqlite.sh
+```
+
+### 2. Uruchom aplikację
+
+```bash
+./run.sh
+```
+
+### 3. Otwórz dashboard
+
+W przeglądarce:
+
+```text
+http://localhost:8012
+```
+
+### 4. Wgraj plik `WLR`
+
+W UI:
+
+- wybierz `Upload WLR`
+- wskaż plik `.wlr`
+- kliknij `Wyślij plik`
+- kliknij `Analizuj WLR`
+
+### 5. Odczytaj wynik
+
+W dashboardzie zobaczysz:
+
+- źródło danych UKE
+- sparsowane zapytanie
+- mapę analizowanego linku i konfliktów
+- rekomendacje kanałów
+- tabelę `CONDITIONAL / REJECTED`
+- wykres degradacji `TDmax` dla całego badanego pasma z progiem `1 dB`
+
+### 6. Wygeneruj PDF
+
+Po analizie:
+
+- kliknij `Pobierz PDF`
+
+## Co sprawdzić po instalacji
+
+Składnia Pythona:
+
+```bash
+python3 -m py_compile analysis.py app.py schemas.py wlr.py uke.py
+```
+
+Składnia frontendu:
+
+```bash
+node --check static/js/app.js
+```
+
+Kontrola API:
+
+```bash
+curl -s http://127.0.0.1:8012/api/health
+curl -s http://127.0.0.1:8012/api/source
+```
 
 ## Dokumentacja
 
-- [Architektura](docs/ARCHITECTURE.md)
-- [Operacje i workflow](docs/OPERATIONS.md)
-- [Git - szybka sciaga](docs/GIT.md)
-- [Workflow UKE - reverse engineering](docs/UKE_WORKFLOW.md)
+- [Reverse engineered workflow UKE - syntetycznie](docs/UKE_WORKFLOW_REVERSE_ENGINEERED.md)
+- [Workflow UKE - pełne notatki reverse engineeringu](docs/UKE_WORKFLOW.md)
+- [VBA i makra Accessa](docs/UKE_VBA.md)
 - [Eksport MDB UKE](docs/UKE_MDB_EXPORT.md)
+- [Architektura](docs/ARCHITECTURE.md)
+- [Operacje](docs/OPERATIONS.md)
+- [Git - szybka ściąga](docs/GIT.md)
 
-## Git
+## Uwaga praktyczna
 
-Repo zostalo zainicjalizowane lokalnie:
+Najlepiej działający dziś model końcowego statusu kanału to eksperymentalny
+`dual-path status gate`, wyprowadzony z reverse engineeringu Accessa.
 
-```bash
-git status
-```
+Na paczce referencyjnej `80 GHz` osiąga:
 
-Domyslny `.gitignore` pomija:
-- duze bazy MDB
-- XLSX
-- uploady
-- raporty PDF
-- logi
-- artefakty lokalne
+- `303 / 308`
+- `98.38%`
 
-Jesli chcesz wersjonowac wybrane dane testowe lub eksporty, trzeba je dodac swiadomie wyjatkami w `.gitignore`.
+To jest bardzo dobry wynik, ale nadal należy go traktować jako model odtworzony,
+a nie oficjalną specyfikację UKE.

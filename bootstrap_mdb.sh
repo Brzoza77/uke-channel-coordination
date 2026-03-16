@@ -10,7 +10,8 @@ fi
 
 source "${VENV_DIR}/bin/activate"
 python -m pip install --upgrade pip
+python -m pip install -r "${ROOT_DIR}/requirements.txt"
 python -m pip install -r "${ROOT_DIR}/requirements-mdb.txt"
 
-echo "MDB environment is ready."
+echo "Application + MDB environment is ready."
 echo "Activate with: source ${VENV_DIR}/bin/activate"

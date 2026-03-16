@@ -16,13 +16,12 @@ Zadania:
 
 Pliki:
 - `uke.py`
-- `plany/`
 - `data/`
 
 Zadania:
-- ladowanie zbioru pozwolen radiowych z XLSX
+- ladowanie wewnetrznego katalogu UKE z `data/uke_workflow.sqlite`
 - parowanie rekordow simplex w linki duplex
-- ladowanie planow kanalowych
+- ladowanie planow kanalowych z `MDB/sqlite`
 - lookup charakterystyk anten i masek
 
 ### 3. Silnik analizy
@@ -74,16 +73,16 @@ Zadania:
 ### WLR
 - zadane przeslo i parametry konsultacji
 
-### XLSX z pozwoleniami
-- aktualna lista linii radiowych
-
 ### MDB UKE
-- zrodlo charakterystyk anten i masek
-- obecnie wykorzystywane do lokalnych eksportow/agregatow
+- zrodlo pelnego workflow UKE
+- po odswiezeniu sa eksportowane do `sqlite`
+
+### SQLite UKE
+- glowny runtime dataset aplikacji
+- katalog linkow, planow, anten, nadajnikow i workflow konsultacyjnego
 
 ## Ograniczenia obecnego modelu
 
-- porownania z historycznymi `doc` sa zaburzone przez aktualna liste pozwoleń
+- nie wszystkie fragmenty VBA Accessa zostaly literalnie odzyskane
 - topografia i morfologia terenu nie sa jeszcze w pelni dolaczone do modelu
-- czesc przypadkow nadal jest zbyt restrykcyjna lub zbyt lagodna wzgledem UKE
-
+- czesc przypadkow nadal wymaga dalszego strojenia mimo wysokiej zgodnosci na paczce referencyjnej

@@ -104,6 +104,26 @@ UKE_DOWNLOAD_PLANY=1 ./refresh_uke_sqlite.sh
 
 Włącza także pobieranie i ekstrakcję archiwum planów UKE.
 
+## Walidacja pipeline
+
+Pipeline został sprawdzony end-to-end na czystym katalogu roboczym:
+
+1. publikacja UKE została wykryta poprawnie
+2. `lr_konsultacja_v349.rar` został pobrany
+3. archiwum zostało rozpakowane do `MDB`
+4. `refresh_uke_sqlite.sh` zbudował nową `sqlite`
+5. główne tabele zostały potwierdzone w wyniku:
+   - `lr_konsultacja_349__przeslo`
+   - `lr_konsultacja_349__decyzja`
+   - `db1__dane_emc`
+   - `db2__czestotliwosc_kandydujaca`
+
+W praktyce należy pamiętać:
+
+- komunikaty `Could not find table ...` dla części tabel w `db1/db2` są oczekiwane
+- `db1` i `db2` nie zawierają pełnego zestawu tabel obecnych w `_349`
+- prawidłowym kryterium sukcesu jest kompletna `sqlite`, manifest i obecność głównych tabel workflow
+
 ## Uruchomienie ręczne
 
 W katalogu projektu:
