@@ -599,6 +599,22 @@ Otwarte pytanie zostało zawężone do:
 Raport tej warstwy:
 - `logs/access_writer_callsite_20260316.json`
 
+Wynik testu hipotez:
+- proste hipotezy:
+  - `wsk=1 -> b-i`, `wsk=2 -> i-b`
+  - albo odwrotna
+  nie są dziś najlepiej wspierane
+- najlepiej wspiera się hipoteza pośrednia:
+  - `wsk=1/2` wybiera gałąź `N/O`
+  - a końcowe mapowanie do `Margines_b-i` / `Margines_i-b` dzieje się warstwę później
+
+Powód:
+- `Marg_n` i `Marg_o` są opisane jako degradacja odbiornika `i-tego przęsła`
+- więc wyglądają bardziej jak podgałęzie writer flow niż gotowe finalne kolumny `Wynik EMC-LR`
+
+Raport testu:
+- `logs/access_writer_hypotheses_20260316.json`
+
 1. Wygeneruj kandydaty kierunkowe dla obu kierunków i polaryzacji.
 2. Sparuj rekordy `A/B` do wariantu duplexowego po `numer_pary_f` i `polaryzacja`.
 3. Dla każdego kierunku policz lub odczytaj margines:

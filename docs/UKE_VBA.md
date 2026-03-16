@@ -406,6 +406,24 @@ Wciąż otwarte pozostaje:
 Raport call site:
 - `logs/access_writer_callsite_20260316.json`
 
+Wynik testu hipotez:
+- `H1`: `wsk=1 -> b-i`, `wsk=2 -> i-b`
+  - nie ma dziś mocnego wsparcia
+- `H2`: `wsk=1 -> i-b`, `wsk=2 -> b-i`
+  - też nie ma dziś mocnego wsparcia
+- `H3`: `wsk=1/2` wybiera gałąź `N/O`, a końcowe mapowanie do `b-i` / `i-b` dzieje się warstwę później
+  - to jest obecnie najlepiej wsparta hipoteza
+
+Dlaczego:
+- oba wrappery `Marg_n` i `Marg_o` są opisane jako degradacja odbiornika `i-tego przęsła`
+- samo odwrócenie etykiety `b-i` / `i-b` nie zmienia benchmarku liczbowo
+- to sugeruje, że brakująca logika siedzi między:
+  - `wyniki_EMC_prz`
+  - a `wyniki_EMC_fk`
+
+Raport testu:
+- `logs/access_writer_hypotheses_20260316.json`
+
 ## Najbardziej sensowny następny krok
 
 Skupić dalszy reverse engineering na:
