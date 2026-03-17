@@ -3,7 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import json
 import re
+import threading
+import time
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -41,10 +44,15 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 UPLOADS_DIR = BASE_DIR / "uploads" / "wlr"
 REPORTS_DIR = BASE_DIR / "reports"
+LOGS_DIR = BASE_DIR / "logs"
+ANALYSIS_RUN_LOG = LOGS_DIR / "wlr_analysis_runs.jsonl"
 INDEX_FILE = BASE_DIR / "index.html"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+ANALYSIS_LOG_LOCK = threading.Lock()
 
 
 app = FastAPI(title="UKE Channel Coordination", version="0.1.0")
@@ -157,14 +165,113 @@ def _build_analyze_request_summary(payload: dict) -> AnalyzeRequestSummary:
     return AnalyzeRequestSummary(**payload)
 
 
-async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, object]:
+def _append_analysis_run_log(entry: dict) -> None:
+    with ANALYSIS_LOG_LOCK:
+        with ANALYSIS_RUN_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _build_analysis_run_entry(
+    *,
+    trigger: str,
+    request: AnalyzeRequest,
+    started_at: datetime,
+    duration_ms: float,
+    status: str,
+    parsed_request=None,
+    response: AnalyzeResponse | None = None,
+    error_detail: str | None = None,
+) -> dict:
+    entry = {
+        "trigger": trigger,
+        "status": status,
+        "started_at": started_at.isoformat(timespec="seconds"),
+        "finished_at": datetime.now().isoformat(timespec="seconds"),
+        "duration_ms": round(duration_ms, 2),
+        "upload_id": request.upload_id,
+        "operator_name": request.operator_name,
+        "radius_km": request.radius_km,
+        "max_links": request.max_links,
+        "preferred_polarization": request.preferred_polarization,
+        "preferred_plan_symbol": request.preferred_plan_symbol,
+    }
+
+    if parsed_request is not None:
+        entry.update(
+            {
+                "link_name": getattr(parsed_request, "link_name", None),
+                "plan_symbol": getattr(parsed_request, "plan_symbol", None),
+                "requested_channel_ab": getattr(parsed_request, "channel_ab", None),
+                "requested_channel_ba": getattr(parsed_request, "channel_ba", None),
+                "requested_polarization": getattr(parsed_request, "requested_polarization", None),
+            }
+        )
+
+    if response is not None:
+        entry.update(
+            {
+                "summary": {
+                    "candidate_links_count": response.summary.candidate_links_count,
+                    "channels_evaluated": response.summary.channels_evaluated,
+                    "accepted_count": response.summary.accepted_count,
+                    "conditional_count": response.summary.conditional_count,
+                    "rejected_count": response.summary.rejected_count,
+                    "has_accepted": response.summary.has_accepted,
+                    "best_channel_ab": response.summary.best_channel_ab,
+                    "best_channel_ba": response.summary.best_channel_ba,
+                    "best_polarization": response.summary.best_polarization,
+                    "best_score": response.summary.best_score,
+                }
+            }
+        )
+
+    if error_detail:
+        entry["error"] = error_detail
+
+    return entry
+
+
+async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[AnalyzeResponse, object]:
+    started_at = datetime.now()
+    started_perf = time.perf_counter()
+    parsed_request = None
     try:
         parsed_request = await run_in_threadpool(parse_uploaded_wlr, request.upload_id, UPLOADS_DIR)
     except FileNotFoundError as exc:
+        _append_analysis_run_log(
+            _build_analysis_run_entry(
+                trigger=trigger,
+                request=request,
+                started_at=started_at,
+                duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+                status="error",
+                error_detail=str(exc),
+            )
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except WlrParseError as exc:
+        _append_analysis_run_log(
+            _build_analysis_run_entry(
+                trigger=trigger,
+                request=request,
+                started_at=started_at,
+                duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+                status="error",
+                error_detail=f"Nie udało się sparsować WLR: {exc}",
+            )
+        )
         raise HTTPException(status_code=400, detail=f"Nie udało się sparsować WLR: {exc}") from exc
     except Exception as exc:
+        _append_analysis_run_log(
+            _build_analysis_run_entry(
+                trigger=trigger,
+                request=request,
+                started_at=started_at,
+                duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+                status="error",
+                error_detail=f"Błąd odczytu WLR: {exc}",
+            )
+        )
         raise HTTPException(status_code=500, detail=f"Błąd odczytu WLR: {exc}") from exc
 
     try:
@@ -176,6 +283,17 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
             request.max_links,
         )
     except Exception as exc:
+        _append_analysis_run_log(
+            _build_analysis_run_entry(
+                trigger=trigger,
+                request=request,
+                started_at=started_at,
+                duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+                status="error",
+                parsed_request=parsed_request,
+                error_detail=f"Błąd analizy WLR: {exc}",
+            )
+        )
         raise HTTPException(status_code=500, detail=f"Błąd analizy WLR: {exc}") from exc
 
     request_summary_payload = build_wlr_request_summary(parsed_request, upload_id=request.upload_id)
@@ -715,6 +833,18 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         debug=debug,
     )
 
+    _append_analysis_run_log(
+        _build_analysis_run_entry(
+            trigger=trigger,
+            request=request,
+            started_at=started_at,
+            duration_ms=(time.perf_counter() - started_perf) * 1000.0,
+            status="ok",
+            parsed_request=parsed_request,
+            response=response,
+        )
+    )
+
     return response, parsed_request
 
 
@@ -988,13 +1118,13 @@ def _store_report_pdf(pdf_bytes: bytes, link_name: str, upload_id: str) -> tuple
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def api_analyze(request: AnalyzeRequest) -> AnalyzeResponse:
-    response, _parsed_request = await _run_analysis(request)
+    response, _parsed_request = await _run_analysis(request, trigger="api.analyze")
     return response
 
 
 @app.post("/api/report.pdf")
 async def api_report_pdf(request: AnalyzeRequest) -> StreamingResponse:
-    response, parsed_request = await _run_analysis(request)
+    response, parsed_request = await _run_analysis(request, trigger="api.report.pdf")
     source_summary = get_source_summary()
     pdf_bytes = await run_in_threadpool(_build_report_pdf, response, parsed_request, source_summary)
     _file_path, filename = await run_in_threadpool(
@@ -1023,7 +1153,7 @@ async def api_report_pdf_get(
         max_links=max_links,
         operator_name=operator_name,
     )
-    response, parsed_request = await _run_analysis(request)
+    response, parsed_request = await _run_analysis(request, trigger="api.report.get")
     source_summary = get_source_summary()
     pdf_bytes = await run_in_threadpool(_build_report_pdf, response, parsed_request, source_summary)
     file_path, filename = await run_in_threadpool(

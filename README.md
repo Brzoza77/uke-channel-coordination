@@ -213,6 +213,23 @@ Po analizie:
 
 - kliknij `Pobierz PDF`
 
+## Log analiz
+
+Serwer zapisuje każde uruchomienie analizy WLR do:
+
+- [logs/wlr_analysis_runs.jsonl](/home/brzoza/uke/logs/wlr_analysis_runs.jsonl)
+
+Każdy wpis zawiera m.in.:
+
+- timestamp startu i końca
+- czas trwania analizy w `ms`
+- `upload_id`
+- źródło wywołania:
+  - `api.analyze`
+  - `api.report.pdf`
+  - `api.report.get`
+- wynik analizy albo błąd
+
 ## Co sprawdzić po instalacji
 
 Składnia Pythona:
