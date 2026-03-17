@@ -81,8 +81,13 @@ Runtime aplikacji:
 - `fastapi==0.92.0`
 - `uvicorn==0.17.6`
 - `pydantic==1.10.22`
-- `reportlab==3.6.12`
 - `python-multipart==0.0.5`
+
+Generator PDF jest teraz wbudowany w projekt i nie wymaga:
+
+- `reportlab`
+- `ft2build.h`
+- pakietów developerskich `freetype`
 
 Warstwa MDB / Access:
 

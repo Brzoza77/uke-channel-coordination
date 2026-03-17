@@ -10,11 +10,6 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.pdfgen import canvas
 
 from schemas import (
     AnalyzeRequest,
@@ -30,6 +25,7 @@ from schemas import (
     SourceSummaryResponse,
     UploadWlrSummaryResponse,
 )
+from simple_pdf import A4, HexColor, SimplePdfCanvas, WHITE, mm
 from wlr import (
     WlrParseError,
     build_wlr_request_summary,
@@ -811,17 +807,17 @@ def _build_channel_chart(candidate_frequency_records, parsed_request) -> Channel
     )
 
 
-def _fit_text(pdf: canvas.Canvas, text: str, max_width: float, font_name: str, font_size: float) -> str:
-    if stringWidth(text, font_name, font_size) <= max_width:
+def _fit_text(pdf: SimplePdfCanvas, text: str, max_width: float, font_name: str, font_size: float) -> str:
+    if pdf.string_width(text, font_name, font_size) <= max_width:
         return text
     ellipsis = "..."
     trimmed = text
-    while trimmed and stringWidth(trimmed + ellipsis, font_name, font_size) > max_width:
+    while trimmed and pdf.string_width(trimmed + ellipsis, font_name, font_size) > max_width:
         trimmed = trimmed[:-1]
     return (trimmed + ellipsis) if trimmed else ellipsis
 
 
-def _draw_kv_row(pdf: canvas.Canvas, y: float, label: str, value: str, label_width: float, page_width: float) -> float:
+def _draw_kv_row(pdf: SimplePdfCanvas, y: float, label: str, value: str, label_width: float, page_width: float) -> float:
     pdf.setFont("Helvetica-Bold", 9)
     pdf.drawString(16 * mm, y, label)
     pdf.setFont("Helvetica", 9)
@@ -833,30 +829,30 @@ def _draw_kv_row(pdf: canvas.Canvas, y: float, label: str, value: str, label_wid
 def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary: dict) -> bytes:
     buffer = BytesIO()
     page_width, page_height = A4
-    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf = SimplePdfCanvas(buffer, pagesize=A4)
     pdf.setTitle(f"Raport koordynacji {response.request.upload_id}")
     pdf.setAuthor("UKE Channel Coordination")
 
     y = page_height - 16 * mm
 
-    pdf.setFillColor(colors.HexColor("#0f172a"))
+    pdf.setFillColor(HexColor("#0f172a"))
     pdf.setFont("Helvetica-Bold", 16)
     pdf.drawString(16 * mm, y, "Raport analizy kompatybilnosci lacza radiowego")
     y -= 7 * mm
     pdf.setFont("Helvetica", 9)
-    pdf.setFillColor(colors.HexColor("#475569"))
+    pdf.setFillColor(HexColor("#475569"))
     run_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     pdf.drawString(16 * mm, y, f"Data wykonania: {run_stamp}")
     y -= 4 * mm
     pdf.drawString(16 * mm, y, f"Silnik: {ENGINE_VERSION}    Zrodlo: {source_summary['filename']}")
     y -= 8 * mm
 
-    pdf.setStrokeColor(colors.HexColor("#cbd5e1"))
+    pdf.setStrokeColor(HexColor("#cbd5e1"))
     pdf.setLineWidth(0.5)
     pdf.line(16 * mm, y, page_width - 16 * mm, y)
     y -= 7 * mm
 
-    pdf.setFillColor(colors.HexColor("#0f172a"))
+    pdf.setFillColor(HexColor("#0f172a"))
     pdf.setFont("Helvetica-Bold", 11)
     pdf.drawString(16 * mm, y, "Badane przeslo")
     y -= 6.5 * mm
@@ -906,9 +902,9 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
     headers = ["Lp.", "A->B", "B->A", "Pol.", "Status", "Score", "Uzasadnienie"]
     row_height = 7 * mm
 
-    pdf.setFillColor(colors.HexColor("#e2e8f0"))
+    pdf.setFillColor(HexColor("#e2e8f0"))
     pdf.rect(table_x, y - row_height + 1.2 * mm, table_width, row_height, fill=1, stroke=0)
-    pdf.setFillColor(colors.HexColor("#0f172a"))
+    pdf.setFillColor(HexColor("#0f172a"))
     pdf.setFont("Helvetica-Bold", 8)
     x = table_x + 1.2 * mm
     for header, width in zip(headers, col_widths):
@@ -934,9 +930,9 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
     for item in rows:
         if y < 22 * mm:
             break
-        pdf.setFillColor(colors.white if item.rank % 2 else colors.HexColor("#f8fafc"))
+        pdf.setFillColor(WHITE if item.rank % 2 else HexColor("#f8fafc"))
         pdf.rect(table_x, y - row_height + 1.2 * mm, table_width, row_height, fill=1, stroke=0)
-        pdf.setFillColor(colors.HexColor("#0f172a"))
+        pdf.setFillColor(HexColor("#0f172a"))
         cells = [
             str(item.rank),
             item.channel_ab,
@@ -955,7 +951,7 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
         y -= row_height
 
     y -= 3 * mm
-    pdf.setFillColor(colors.HexColor("#475569"))
+    pdf.setFillColor(HexColor("#475569"))
     pdf.setFont("Helvetica", 7.5)
     footer = "Raport pogladowy generowany automatycznie z aktualnej analizy WLR."
     pdf.drawString(16 * mm, 12 * mm, footer)
