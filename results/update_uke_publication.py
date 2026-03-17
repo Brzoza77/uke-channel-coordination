@@ -30,6 +30,10 @@ class PublicationArtifact:
     filename: str
 
 
+class MissingRarExtractorError(RuntimeError):
+    pass
+
+
 def _clean_label(value: str) -> str:
     text = TAG_RE.sub(" ", unescape(value))
     text = SPACE_RE.sub(" ", text).strip()
@@ -83,22 +87,55 @@ def download_file(url: str, dest_path: Path) -> None:
         shutil.copyfileobj(response, fh)
 
 
+def find_rar_extractor() -> tuple[str, list[str]]:
+    candidates: list[tuple[str, list[str]]] = [
+        ("unar", ["unar", "-force-overwrite"]),
+        ("7z", ["7z", "x", "-y"]),
+        ("unrar", ["unrar", "x", "-o+"]),
+        ("bsdtar", ["bsdtar", "-xf"]),
+    ]
+    for tool_name, command in candidates:
+        if shutil.which(tool_name):
+            return tool_name, command
+    raise MissingRarExtractorError(
+        "Nie znaleziono ekstraktora RAR. "
+        "Zainstaluj jedno z narzędzi: `unar`, `7z`, `unrar` albo `bsdtar`.\n"
+        "Ubuntu/Debian: `sudo apt install unar` albo `sudo apt install p7zip-full`"
+    )
+
+
 def extract_rar(archive_path: Path, dest_dir: Path) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
-    if shutil.which("unar"):
+    tool_name, base_command = find_rar_extractor()
+
+    if tool_name == "unar":
+        command = [*base_command, "-output-directory", str(dest_dir), str(archive_path)]
+    elif tool_name == "7z":
+        command = [*base_command, f"-o{dest_dir}", str(archive_path)]
+    elif tool_name == "unrar":
+        command = [*base_command, str(archive_path), str(dest_dir)]
+    elif tool_name == "bsdtar":
+        command = [*base_command, str(archive_path), "-C", str(dest_dir)]
+    else:
+        raise RuntimeError(f"Nieobsługiwany ekstraktor RAR: {tool_name}")
+
+    try:
         subprocess.run(
-            ["unar", "-force-overwrite", "-output-directory", str(dest_dir), str(archive_path)],
+            command,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
-        return
-    subprocess.run(
-        ["7z", "x", "-y", f"-o{dest_dir}", str(archive_path)],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+    except FileNotFoundError as exc:
+        raise MissingRarExtractorError(
+            "Nie znaleziono ekstraktora RAR podczas rozpakowywania. "
+            "Zainstaluj `unar`, `7z`, `unrar` albo `bsdtar`."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        output = exc.stdout.decode("utf-8", errors="ignore") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        raise RuntimeError(
+            f"Nie udało się rozpakować archiwum RAR przy użyciu `{tool_name}`.\n{output.strip()}"
+        ) from exc
 
 
 def locate_mdb_files(extract_dir: Path) -> dict[str, str]:
@@ -247,4 +284,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except MissingRarExtractorError as exc:
+        sys.stderr.write(str(exc) + "\n")
+        raise SystemExit(2)

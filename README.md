@@ -62,17 +62,31 @@ python -m pip install -r requirements-mdb.txt
 
 ### 3. Wymagania systemowe
 
-Do pełnego odświeżania publikacji UKE przydają się:
+Do pełnego odświeżania publikacji UKE potrzebne są:
 
 - `python3`
 - `unrar` kompatybilny ekstraktor:
   - preferowany `unar`
   - fallback `7z`
+  - działa też `unrar`
+  - działa też `bsdtar`
 
 Na tej maszynie smoke test był wykonywany z:
 
 - `unar`
 - `7z`
+
+Przykład dla Ubuntu/Debian:
+
+```bash
+sudo apt install unar
+```
+
+albo:
+
+```bash
+sudo apt install p7zip-full
+```
 
 ## Zależności Pythona
 
