@@ -173,6 +173,7 @@ class ChannelInterferenceBar(BaseModel):
     status: str
     gate_status: Optional[str] = None
     requested: bool = False
+    recommended: bool = False
     td_max_db: float = 0.0
     td_max_ab_db: float = 0.0
     td_max_ba_db: float = 0.0

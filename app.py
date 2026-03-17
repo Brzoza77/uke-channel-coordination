@@ -495,7 +495,14 @@ async def _run_analysis(request: AnalyzeRequest) -> tuple[AnalyzeResponse, objec
         best_polarization=best_assessment.candidate.polarization if best_assessment else None,
         best_score=best_record.score if best_record else (best_assessment.score if best_assessment else None),
     )
-    channel_chart = _build_channel_chart(candidate_frequency_records, parsed_request)
+    recommended_key = None
+    if best_assessment:
+        recommended_key = (
+            best_assessment.candidate.channel_ab,
+            best_assessment.candidate.channel_ba,
+            best_assessment.candidate.polarization,
+        )
+    channel_chart = _build_channel_chart(candidate_frequency_records, parsed_request, recommended_key)
 
     debug = {
         "bbox": {
@@ -745,7 +752,7 @@ def _channel_sort_key(channel_value: str) -> tuple[int, int, str]:
     return (number, prime_rank, suffix)
 
 
-def _build_channel_chart(candidate_frequency_records, parsed_request) -> ChannelInterferenceChart:
+def _build_channel_chart(candidate_frequency_records, parsed_request, recommended_key: tuple[str, str, str] | None = None) -> ChannelInterferenceChart:
     items: list[ChannelInterferenceBar] = []
     threshold_db = 1.0
 
@@ -788,6 +795,10 @@ def _build_channel_chart(candidate_frequency_records, parsed_request) -> Channel
                     record.channel_ab == parsed_request.channel_ab
                     and record.channel_ba == parsed_request.channel_ba
                     and record.polarization == parsed_request.requested_polarization
+                ),
+                recommended=(
+                    recommended_key is not None
+                    and (record.channel_ab, record.channel_ba, record.polarization) == recommended_key
                 ),
                 td_max_db=td_max_db,
                 td_max_ab_db=td_max_ab_db,

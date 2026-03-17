@@ -490,6 +490,7 @@
         "channel-bar",
         `is-${String(item.status || "unknown").toLowerCase()}`,
         item.requested ? "is-requested" : "",
+        item.recommended ? "is-recommended" : "",
       ].filter(Boolean).join(" ");
       const tooltip = [
         `${item.label}`,
@@ -502,6 +503,7 @@
         `RED: ${item.red_pair_count}`,
         `Blocking: ${item.blocking_pair_count}`,
         item.requested ? "Kanał żądany" : null,
+        item.recommended ? "Kanał rekomendowany przez aplikację" : null,
       ].filter(Boolean).join("\n");
 
       return `
