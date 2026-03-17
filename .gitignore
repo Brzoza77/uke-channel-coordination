@@ -20,3 +20,5 @@ data/uke_source/
 *.pdf
 
 debug.api
+
+/testy/
