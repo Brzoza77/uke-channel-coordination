@@ -414,17 +414,27 @@ input[type="file"] {
 
 .channel-chart-stage {
   --chart-track-height: 240px;
-  --chart-track-top-offset: 24px;
+  --chart-value-row-height: 22px;
+  --chart-row-gap: 8px;
+  --chart-label-row-height: 74px;
+  --chart-stage-height: calc(
+    var(--chart-value-row-height) +
+    var(--chart-row-gap) +
+    var(--chart-track-height) +
+    var(--chart-row-gap) +
+    var(--chart-label-row-height)
+  );
   position: relative;
   width: max-content;
   min-width: 100%;
+  min-height: var(--chart-stage-height);
 }
 
 .channel-chart-threshold-layer {
   position: absolute;
   left: 0;
   right: 0;
-  top: var(--chart-track-top-offset);
+  top: calc(var(--chart-value-row-height) + var(--chart-row-gap));
   height: var(--chart-track-height);
   pointer-events: none;
   z-index: 0;
@@ -454,24 +464,28 @@ input[type="file"] {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(42px, 42px);
-  align-items: end;
+  align-items: start;
   gap: 10px;
   min-width: max-content;
-  min-height: 320px;
+  min-height: var(--chart-stage-height);
   z-index: 1;
 }
 
 .channel-bar {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows:
+    var(--chart-value-row-height)
+    var(--chart-track-height)
+    var(--chart-label-row-height);
   align-items: center;
-  gap: 8px;
+  row-gap: var(--chart-row-gap);
 }
 
 .channel-bar-value {
   font-size: 0.76rem;
   color: var(--muted);
-  min-height: 16px;
+  min-height: var(--chart-value-row-height);
+  line-height: var(--chart-value-row-height);
 }
 
 .channel-bar-track {
@@ -517,7 +531,6 @@ input[type="file"] {
 
 .channel-bar-label {
   width: 78px;
-  margin-top: 4px;
   font-size: 0.78rem;
   font-weight: 700;
   text-align: left;
