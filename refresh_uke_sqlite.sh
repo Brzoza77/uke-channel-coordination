@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 SQLITE_PATH="${1:-data/uke_workflow.sqlite}"
+ANTENNA_SQLITE_PATH="${UKE_ANTENNA_SQLITE_PATH:-data/antenna_catalog.sqlite}"
 AUTO_UPDATE="${UKE_AUTO_UPDATE:-1}"
 SOURCE_ROOT="${UKE_SOURCE_ROOT:-data/uke_source}"
 STATE_FILE="${UKE_STATE_FILE:-$SOURCE_ROOT/state.json}"
@@ -51,6 +52,11 @@ python3 results/extract_uke_workflow_sqlite.py \
   --mdb "${MDB_ARGS[@]}" \
   --sqlite "$SQLITE_PATH"
 
+rm -f "${ANTENNA_SQLITE_PATH}" "${ANTENNA_SQLITE_PATH}-wal" "${ANTENNA_SQLITE_PATH}-shm"
+python3 results/extract_uke_antennas_sqlite.py \
+  --mdb "${MDB_ARGS[0]}" \
+  --sqlite "$ANTENNA_SQLITE_PATH"
+
 python3 results/analyze_uke_workflow_sqlite.py \
   --sqlite "$SQLITE_PATH" \
   --source-db LR_Konsultacja_349 \
@@ -62,6 +68,8 @@ python3 results/build_uke_workflow_graph.py \
   --out-json logs/uke_workflow_graph.json \
   --out-dot logs/uke_workflow_graph.dot
 
-echo "Odświeżono SQLite i artefakty workflow: $SQLITE_PATH"
+echo "Odświeżono SQLite i artefakty workflow:"
+echo " - katalog UKE: $SQLITE_PATH"
+echo " - katalog anten: $ANTENNA_SQLITE_PATH"
 printf 'MDB source files:\n'
 printf ' - %s\n' "${MDB_ARGS[@]}"

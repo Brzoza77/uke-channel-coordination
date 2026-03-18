@@ -11,6 +11,8 @@ import sqlite3
 
 import subprocess
 
+from antenna_catalog import DEFAULT_CATALOG_PATH, catalog_exists
+
 
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / ".cache"
@@ -1646,6 +1648,8 @@ def get_source_summary() -> dict[str, Any]:
         rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
     return {
         "source_kind": "sqlite",
+        "antenna_catalog_present": catalog_exists(DEFAULT_CATALOG_PATH),
+        "antenna_catalog_path": str(DEFAULT_CATALOG_PATH),
         "filename": INTERNAL_SQLITE_PATH.name,
         "full_path": str(INTERNAL_SQLITE_PATH),
         "rows_count": rows_count,

@@ -118,6 +118,8 @@ def api_source() -> SourceSummaryResponse:
         engine_version=ENGINE_VERSION,
         source_kind=source["source_kind"],
         plan_source_kind=plans.get("primary_source_format"),
+        antenna_catalog_present=source.get("antenna_catalog_present", False),
+        antenna_catalog_path=source.get("antenna_catalog_path"),
         filename=source["filename"],
         full_path=source["full_path"],
         rows_count=source["rows_count"],

@@ -26,3 +26,6 @@ fi
 
 echo "Application + MDB environment is ready."
 echo "Activate with: source ${VENV_DIR}/bin/activate"
+echo "Po ./refresh_uke_sqlite.sh powstana oba runtime datasets:"
+echo " - data/uke_workflow.sqlite"
+echo " - data/antenna_catalog.sqlite"

@@ -15,6 +15,8 @@ class SourceSummaryResponse(BaseModel):
     engine_version: str
     source_kind: Literal["sqlite"]
     plan_source_kind: Optional[str] = None
+    antenna_catalog_present: bool = False
+    antenna_catalog_path: Optional[str] = None
     filename: str
     full_path: str
     rows_count: int

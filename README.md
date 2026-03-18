@@ -18,13 +18,14 @@ Projekt zawiera:
 Podstawowym źródłem danych jest teraz:
 
 - [data/uke_workflow.sqlite](/home/brzoza/uke/data/uke_workflow.sqlite)
+- [data/antenna_catalog.sqlite](/home/brzoza/uke/data/antenna_catalog.sqlite)
 
-czyli lokalna `SQLite` budowana z publikacji `MDB` UKE.
+czyli lokalne `SQLite` budowane z publikacji `MDB` UKE.
 
 Runtime aplikacji nie korzysta już z dawnych wejść `XLSX` ani `RTF`.
 Obowiązujący model danych to wyłącznie:
 
-- `MDB -> SQLite`
+- `MDB -> SQLite + antenna catalog`
 - `WLR -> analiza -> PDF/UI`
 
 ## Instalacja
@@ -123,7 +124,12 @@ Skrypt:
 2. pobiera najnowsze archiwum `lr_konsultacja`
 3. rozpakowuje `MDB`
 4. buduje `data/uke_workflow.sqlite`
-5. odświeża artefakty workflow w `logs/`
+5. buduje `data/antenna_catalog.sqlite`
+6. odświeża artefakty workflow w `logs/`
+
+`data/antenna_catalog.sqlite` jest wymagana do pelnej analizy EMC.
+Bez niej runtime przechodzi na uproszczony fallback charakterystyk anten i wyniki moga
+rozjechac sie wzgledem srodowiska referencyjnego.
 
 Przydatne warianty:
 
@@ -250,6 +256,11 @@ Kontrola API:
 curl -s http://127.0.0.1:8012/api/health
 curl -s http://127.0.0.1:8012/api/source
 ```
+
+W `api/source` sprawdzisz tez, czy runtime widzi:
+
+- `antenna_catalog_present`
+- `antenna_catalog_path`
 
 ## Dokumentacja
 
