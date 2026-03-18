@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import analyze_wlr_request
+from antenna_catalog import DEFAULT_CATALOG_PATH
 from uke import INTERNAL_SQLITE_PATH, _internal_catalog_query, get_source_summary, lookup_internal_radio_profile
 from wlr import build_wlr_request_summary, parse_wlr_file
 
@@ -40,6 +41,20 @@ def _sqlite_signature(path: Path) -> dict[str, object]:
         "sha256": sha,
         "table_count": table_count,
         "sample_tables": [row[0] for row in sample],
+    }
+
+
+def _file_signature(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {"path": str(path), "exists": False}
+    stat = path.stat()
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {
+        "path": str(path),
+        "exists": True,
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": sha,
     }
 
 
@@ -257,6 +272,7 @@ def main() -> None:
             "git_commit": _git_commit(),
         },
         "sqlite": _sqlite_signature(INTERNAL_SQLITE_PATH),
+        "antenna_catalog": _file_signature(Path(DEFAULT_CATALOG_PATH)),
         "catalog_digest": _catalog_digest(INTERNAL_SQLITE_PATH),
         "source_summary": source,
         "request": build_wlr_request_summary(request),
