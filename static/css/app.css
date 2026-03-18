@@ -569,6 +569,120 @@ input[type="file"] {
   color: var(--text);
 }
 
+.ko-plan-empty {
+  padding: 18px;
+  border: 1px dashed rgba(122, 162, 255, 0.28);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ko-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ko-plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ko-plan-title {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.ko-plan-subtitle {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ko-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ko-plan-card {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.ko-plan-card-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #f6fbff;
+  margin-bottom: 4px;
+}
+
+.ko-plan-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ko-plan-field:last-child {
+  border-bottom: 0;
+}
+
+.ko-plan-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.ko-plan-value {
+  color: var(--text);
+  font-weight: 700;
+  text-align: right;
+}
+
+.ko-plan-assumptions {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ko-plan-assumptions li + li {
+  margin-top: 6px;
+}
+
+.ko-plan-warnings {
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.09);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.ko-plan-warnings-title {
+  color: #fcd34d;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.ko-plan-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #ffe7b2;
+  font-size: 0.9rem;
+}
+
+.ko-plan-warning-list li + li {
+  margin-top: 6px;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -662,5 +776,9 @@ tbody tr:hover {
 
   .map-placeholder {
     min-height: 300px;
+  }
+
+  .ko-plan-grid {
+    grid-template-columns: 1fr;
   }
 }

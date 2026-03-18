@@ -24,6 +24,7 @@ from schemas import (
     ChannelRecommendation,
     ConflictItem,
     HealthResponse,
+    LinkBudgetPlan,
     MapFeatureCollection,
     SourceSummaryResponse,
     UploadWlrSummaryResponse,
@@ -37,7 +38,13 @@ from wlr import (
 )
 from uke import get_pairing_summary, get_plan_summary, get_source_summary
 
-from analysis import ENGINE_VERSION, analyze_wlr_request, build_uke_like_directional_candidate_rows
+from analysis import (
+    ENGINE_VERSION,
+    analyze_wlr_request,
+    build_uke_like_directional_candidate_rows,
+    fspl_db,
+    haversine_km,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -53,6 +60,35 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 ANALYSIS_LOG_LOCK = threading.Lock()
+
+WORKING_ATPC_ENABLED = True
+WORKING_KO_RX_TARGET_DBM = -36.0
+WORKING_SET_RX_TARGET_DBM = -40.0
+WORKING_MIN_TX_FLOOR_DBM = -5.0
+WORKING_RX_OVERDRIVE_WARNING_DBM = -25.0
+WORKING_MAX_TX_FALLBACK_DBM = 18.0
+WORKING_EBAND_GAIN_FALLBACK_DBI = 50.5
+WORKING_MIN_GAIN_FALLBACK_THRESHOLD_DBI = 10.0
+WORKING_TX_CHAIN_LOSS_DB = 0.0
+WORKING_RX_CHAIN_LOSS_DB = 0.0
+WORKING_PLANNED_MODULATION_FALLBACK = "64QAM"
+WORKING_LOWEST_MODULATION = "4QAM"
+ATOLL_ANNUAL_OUTAGE_FIT_A = -0.3478162981646218
+ATOLL_ANNUAL_OUTAGE_FIT_B = -0.036797469416063024
+ATOLL_SENSITIVITY_DBM = {
+    "HALFBPSKS": -80.5,
+    "HALFBPSK": -78.5,
+    "BPSK": -75.5,
+    "4QAM": -73.0,
+    "16QAMS": -69.5,
+    "16QAM": -67.0,
+    "32QAM": -64.0,
+    "64QAM": -61.0,
+    "128QAM": -58.0,
+    "256QAM": -55.0,
+    "512QAM": -51.0,
+    "1024QAM": -48.0,
+}
 
 
 app = FastAPI(title="UKE Channel Coordination", version="0.1.0")
@@ -163,6 +199,257 @@ async def api_upload_wlr(file: UploadFile = File(...)) -> UploadWlrSummaryRespon
 
 def _build_analyze_request_summary(payload: dict) -> AnalyzeRequestSummary:
     return AnalyzeRequestSummary(**payload)
+
+
+def _normalize_modulation_label(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = re.sub(r"[^A-Za-z0-9]+", "", value.upper())
+    return normalized or None
+
+
+def _estimate_clear_air_specific_loss_db_per_km(freq_ghz: float) -> float:
+    if freq_ghz >= 70.0:
+        return max(0.25, min(0.40, 0.184 + 0.00172 * freq_ghz))
+    if freq_ghz >= 30.0:
+        return 0.03
+    if freq_ghz >= 10.0:
+        return 0.01
+    return 0.0
+
+
+def _clear_sky_path_loss_db(distance_km: float, freq_ghz: float) -> float:
+    return fspl_db(distance_km, freq_ghz) + _estimate_clear_air_specific_loss_db_per_km(freq_ghz) * distance_km
+
+
+def _working_gain_dbi(endpoint, *, max_freq_ghz: float) -> float:
+    gain = getattr(endpoint, "antenna_gain_dbi", None)
+    if gain is not None and (max_freq_ghz < 70.0 or gain >= WORKING_MIN_GAIN_FALLBACK_THRESHOLD_DBI):
+        return float(gain)
+    if max_freq_ghz >= 70.0:
+        return WORKING_EBAND_GAIN_FALLBACK_DBI
+    return float(gain or 0.0)
+
+
+def _annual_outage_pct_from_margin(margin_db: float) -> float:
+    outage_pct = 10 ** (ATOLL_ANNUAL_OUTAGE_FIT_A + ATOLL_ANNUAL_OUTAGE_FIT_B * margin_db)
+    return max(0.0001, min(99.0, outage_pct))
+
+
+def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
+    if record is None:
+        return None
+
+    path_length_km = parsed_request.path_length_km
+    if path_length_km is None:
+        path_length_km = haversine_km(
+            parsed_request.site_a.lat_deg,
+            parsed_request.site_a.lon_deg,
+            parsed_request.site_b.lat_deg,
+            parsed_request.site_b.lon_deg,
+        )
+
+    max_freq_ghz = max(record.freq_ab_ghz, record.freq_ba_ghz)
+    tx_gain_a_dbi = _working_gain_dbi(parsed_request.site_a, max_freq_ghz=max_freq_ghz)
+    tx_gain_b_dbi = _working_gain_dbi(parsed_request.site_b, max_freq_ghz=max_freq_ghz)
+
+    configured_tx_values = [
+        float(value)
+        for value in (parsed_request.site_a.tx_power_dbm, parsed_request.site_b.tx_power_dbm)
+        if value is not None
+    ]
+    configured_tx_dbm = max(configured_tx_values) if configured_tx_values else None
+    max_tx_power_dbm = max([WORKING_MAX_TX_FALLBACK_DBM, *configured_tx_values])
+
+    configured_modulation_key = _normalize_modulation_label(parsed_request.modulation)
+    modulation_key = WORKING_PLANNED_MODULATION_FALLBACK
+    lowest_modulation_key = WORKING_LOWEST_MODULATION
+
+    planned_sensitivity_dbm = ATOLL_SENSITIVITY_DBM[modulation_key]
+    lowest_sensitivity_dbm = ATOLL_SENSITIVITY_DBM[lowest_modulation_key]
+
+    clear_loss_ab_db = _clear_sky_path_loss_db(path_length_km, record.freq_ab_ghz)
+    clear_loss_ba_db = _clear_sky_path_loss_db(path_length_km, record.freq_ba_ghz)
+
+    ko_tx_ab_dbm = (
+        WORKING_KO_RX_TARGET_DBM
+        + clear_loss_ab_db
+        + WORKING_TX_CHAIN_LOSS_DB
+        + WORKING_RX_CHAIN_LOSS_DB
+        - tx_gain_a_dbi
+        - tx_gain_b_dbi
+    )
+    ko_tx_ba_dbm = (
+        WORKING_KO_RX_TARGET_DBM
+        + clear_loss_ba_db
+        + WORKING_TX_CHAIN_LOSS_DB
+        + WORKING_RX_CHAIN_LOSS_DB
+        - tx_gain_b_dbi
+        - tx_gain_a_dbi
+    )
+    set_tx_ab_dbm = (
+        WORKING_SET_RX_TARGET_DBM
+        + clear_loss_ab_db
+        + WORKING_TX_CHAIN_LOSS_DB
+        + WORKING_RX_CHAIN_LOSS_DB
+        - tx_gain_a_dbi
+        - tx_gain_b_dbi
+    )
+    set_tx_ba_dbm = (
+        WORKING_SET_RX_TARGET_DBM
+        + clear_loss_ba_db
+        + WORKING_TX_CHAIN_LOSS_DB
+        + WORKING_RX_CHAIN_LOSS_DB
+        - tx_gain_b_dbi
+        - tx_gain_a_dbi
+    )
+
+    ko_tx_power_dbm = max(ko_tx_ab_dbm, ko_tx_ba_dbm)
+    min_tx_power_dbm = max(set_tx_ab_dbm, set_tx_ba_dbm)
+
+    ko_tx_power_dbm = max(WORKING_MIN_TX_FLOOR_DBM, min(max_tx_power_dbm, ko_tx_power_dbm))
+    min_tx_power_dbm = max(WORKING_MIN_TX_FLOOR_DBM, min(max_tx_power_dbm, min_tx_power_dbm))
+
+    rsl_ab_at_min_tx_dbm = (
+        min_tx_power_dbm
+        + tx_gain_a_dbi
+        + tx_gain_b_dbi
+        - clear_loss_ab_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+    rsl_ba_at_min_tx_dbm = (
+        min_tx_power_dbm
+        + tx_gain_b_dbi
+        + tx_gain_a_dbi
+        - clear_loss_ba_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+    rsl_ab_at_ko_tx_dbm = (
+        ko_tx_power_dbm
+        + tx_gain_a_dbi
+        + tx_gain_b_dbi
+        - clear_loss_ab_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+    rsl_ba_at_ko_tx_dbm = (
+        ko_tx_power_dbm
+        + tx_gain_b_dbi
+        + tx_gain_a_dbi
+        - clear_loss_ba_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+
+    rsl_ab_at_max_tx_dbm = (
+        max_tx_power_dbm
+        + tx_gain_a_dbi
+        + tx_gain_b_dbi
+        - clear_loss_ab_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+    rsl_ba_at_max_tx_dbm = (
+        max_tx_power_dbm
+        + tx_gain_b_dbi
+        + tx_gain_a_dbi
+        - clear_loss_ba_db
+        - WORKING_TX_CHAIN_LOSS_DB
+        - WORKING_RX_CHAIN_LOSS_DB
+    )
+    worst_rsl_at_max_tx_dbm = min(rsl_ab_at_max_tx_dbm, rsl_ba_at_max_tx_dbm)
+
+    planned_margin_db = worst_rsl_at_max_tx_dbm - planned_sensitivity_dbm
+    lowest_margin_db = worst_rsl_at_max_tx_dbm - lowest_sensitivity_dbm
+
+    planned_annual_outage_pct = _annual_outage_pct_from_margin(planned_margin_db)
+    annual_outage_pct = _annual_outage_pct_from_margin(lowest_margin_db)
+    minutes_per_year = 365.0 * 24.0 * 60.0
+
+    assumptions = [
+        "KO RX target fixed at -36 dBm",
+        "ATPC set RX target fixed at -40 dBm",
+        f"KO planned modulation fixed to {WORKING_PLANNED_MODULATION_FALLBACK}",
+        "Availability metrics assume ATPC can ramp up to Max TX before declaring outage",
+        "Global outage counted at max TX and lowest modulation 4QAM/QPSK",
+        "Sensitivity table calibrated from supplied Atoll report (BER 1e-06)",
+        "Clear-sky atmospheric loss approximated from Atoll E-band reference (FSPL + gas/water vapour specific loss)",
+        "If WLR antenna gain is missing or implausibly low in E-band, fallback gain 50.5 dBi is used",
+    ]
+    if configured_modulation_key and configured_modulation_key != modulation_key:
+        assumptions.append(
+            f"WLR modulation {configured_modulation_key} ignored for KO; fixed planned modulation {modulation_key} used instead"
+        )
+    if configured_tx_dbm is not None:
+        assumptions.append(
+            f"Configured WLR TX found: {configured_tx_dbm:.1f} dBm; planning cap uses {max_tx_power_dbm:.1f} dBm "
+            f"until radio max from UKE/vendor is confirmed"
+        )
+    else:
+        assumptions.append(f"No explicit WLR max TX found, fallback cap {WORKING_MAX_TX_FALLBACK_DBM:.1f} dBm used")
+
+    warnings: list[str] = []
+    worst_min_rsl_dbm = min(rsl_ab_at_min_tx_dbm, rsl_ba_at_min_tx_dbm)
+    worst_ko_rsl_dbm = min(rsl_ab_at_ko_tx_dbm, rsl_ba_at_ko_tx_dbm)
+    best_min_rsl_dbm = max(rsl_ab_at_min_tx_dbm, rsl_ba_at_min_tx_dbm)
+    best_ko_rsl_dbm = max(rsl_ab_at_ko_tx_dbm, rsl_ba_at_ko_tx_dbm)
+    best_max_rsl_dbm = max(rsl_ab_at_max_tx_dbm, rsl_ba_at_max_tx_dbm)
+
+    if best_min_rsl_dbm > WORKING_RX_OVERDRIVE_WARNING_DBM:
+        warnings.append(
+            f"Przy minimalnej mocy TX {min_tx_power_dbm:.1f} dBm poziom RX moze przekroczyc {WORKING_RX_OVERDRIVE_WARNING_DBM:.0f} dBm "
+            f"(najwyzej {best_min_rsl_dbm:.1f} dBm)."
+        )
+    if best_ko_rsl_dbm > WORKING_RX_OVERDRIVE_WARNING_DBM:
+        warnings.append(
+            f"Przy KO TX {ko_tx_power_dbm:.1f} dBm poziom RX moze przekroczyc {WORKING_RX_OVERDRIVE_WARNING_DBM:.0f} dBm "
+            f"(najwyzej {best_ko_rsl_dbm:.1f} dBm)."
+        )
+    if best_max_rsl_dbm > WORKING_RX_OVERDRIVE_WARNING_DBM:
+        warnings.append(
+            f"Przy Max TX {max_tx_power_dbm:.1f} dBm poziom RX moze przekroczyc {WORKING_RX_OVERDRIVE_WARNING_DBM:.0f} dBm "
+            f"(najwyzej {best_max_rsl_dbm:.1f} dBm)."
+        )
+    if planned_margin_db < 0.0:
+        warnings.append(
+            f"Docelowa modulacja {modulation_key} ma ujemny margines {planned_margin_db:.1f} dB nawet przy Max TX {max_tx_power_dbm:.1f} dBm."
+        )
+    if lowest_margin_db < 0.0:
+        warnings.append(
+            f"Nawet najnizsza modulacja {lowest_modulation_key} ma ujemny margines {lowest_margin_db:.1f} dB; global outage bedzie wysoki."
+        )
+    if ko_tx_power_dbm == WORKING_MIN_TX_FLOOR_DBM and worst_ko_rsl_dbm > WORKING_KO_RX_TARGET_DBM:
+        warnings.append(
+            f"Cel KO RX {WORKING_KO_RX_TARGET_DBM:.0f} dBm nie jest osiagalny bez zejscia ponizej minimalnej mocy TX {WORKING_MIN_TX_FLOOR_DBM:.0f} dBm."
+        )
+
+    return LinkBudgetPlan(
+        channel_label=f"{record.channel_ab}/{record.channel_ba} {record.polarization}",
+        channel_ab=record.channel_ab,
+        channel_ba=record.channel_ba,
+        polarization=record.polarization,
+        status=record.status,
+        gate_status=record.access_fkand_gate_status,
+        path_length_km=round(path_length_km, 3),
+        planned_modulation=modulation_key,
+        lowest_modulation=lowest_modulation_key,
+        atpc_enabled=WORKING_ATPC_ENABLED,
+        min_tx_power_dbm=round(min_tx_power_dbm, 1),
+        set_rx_power_dbm=WORKING_SET_RX_TARGET_DBM,
+        min_rx_power_dbm=lowest_sensitivity_dbm,
+        ko_tx_power_dbm=round(ko_tx_power_dbm, 1),
+        ko_rx_power_dbm=WORKING_KO_RX_TARGET_DBM,
+        max_tx_power_dbm=round(max_tx_power_dbm, 1),
+        planned_margin_db=round(planned_margin_db, 1),
+        planned_annual_reliability_pct=round(100.0 - planned_annual_outage_pct, 4),
+        planned_annual_outage_min=round(planned_annual_outage_pct / 100.0 * minutes_per_year, 1),
+        annual_uninterruptibility_pct=round(100.0 - annual_outage_pct, 4),
+        annual_outage_min=round(annual_outage_pct / 100.0 * minutes_per_year, 1),
+        warnings=warnings,
+        assumptions=assumptions,
+    )
 
 
 def _append_analysis_run_log(entry: dict) -> None:
@@ -312,6 +599,7 @@ async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[Analy
         (item.candidate.channel_ab, item.candidate.channel_ba, item.candidate.polarization): item
         for item in display_assessments
     }
+    global_best_record = candidate_frequency_records[0] if candidate_frequency_records else None
 
     recommendations: list[ChannelRecommendation] = []
     for rank, assessment in enumerate(display_assessments[:20], start=1):
@@ -621,6 +909,7 @@ async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[Analy
             best_assessment.candidate.polarization,
         )
     channel_chart = _build_channel_chart(candidate_frequency_records, parsed_request, recommended_key)
+    link_budget_plan = _build_link_budget_plan(parsed_request, global_best_record)
 
     debug = {
         "bbox": {
@@ -705,6 +994,7 @@ async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[Analy
             "top_conflicts_count": len(requested_assessment.conflicts) if requested_assessment else 0,
         } if requested_assessment else None,
         "requested_channel_top_conflicts": requested_channel_top_conflicts,
+        "link_budget_plan": link_budget_plan.dict() if link_budget_plan else None,
         "top_candidates": [
             {
                 "status": record.status,
@@ -828,6 +1118,7 @@ async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[Analy
         },
         summary=summary,
         channel_chart=channel_chart,
+        link_budget_plan=link_budget_plan,
         recommendations=recommendations,
         conflicts=conflicts,
         debug=debug,
@@ -1031,6 +1322,67 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
         label_width,
         page_width,
     )
+
+    if response.link_budget_plan and y > 70 * mm:
+        y -= 2 * mm
+        pdf.setFillColor(HexColor("#0f172a"))
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(16 * mm, y, "Robocze parametry KO, budzetu i niedostepnosci")
+        y -= 6.5 * mm
+
+        plan = response.link_budget_plan
+        y = _draw_kv_row(pdf, y, "Kanal:", plan.channel_label or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Planned modulation:", plan.planned_modulation or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "ATPC:", "ON" if plan.atpc_enabled else "OFF", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Min TX [dBm]:", f"{plan.min_tx_power_dbm:.1f}" if plan.min_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Set RX [dBm]:", f"{plan.set_rx_power_dbm:.1f}" if plan.set_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Min RX [dBm]:", f"{plan.min_rx_power_dbm:.1f}" if plan.min_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "KO TX [dBm]:", f"{plan.ko_tx_power_dbm:.1f}" if plan.ko_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "KO RX [dBm]:", f"{plan.ko_rx_power_dbm:.1f}" if plan.ko_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Max TX [dBm]:", f"{plan.max_tx_power_dbm:.1f}" if plan.max_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Planned margin [dB]:", f"{plan.planned_margin_db:.1f}" if plan.planned_margin_db is not None else "-", label_width, page_width)
+        y = _draw_kv_row(
+            pdf,
+            y,
+            "Planned annual reliability:",
+            f"{plan.planned_annual_reliability_pct:.4f} %" if plan.planned_annual_reliability_pct is not None else "-",
+            label_width,
+            page_width,
+        )
+        y = _draw_kv_row(
+            pdf,
+            y,
+            "Planned annual outage:",
+            f"{plan.planned_annual_outage_min:.1f} min" if plan.planned_annual_outage_min is not None else "-",
+            label_width,
+            page_width,
+        )
+        y = _draw_kv_row(
+            pdf,
+            y,
+            "Annual uninterruptibility:",
+            f"{plan.annual_uninterruptibility_pct:.4f} %" if plan.annual_uninterruptibility_pct is not None else "-",
+            label_width,
+            page_width,
+        )
+        y = _draw_kv_row(
+            pdf,
+            y,
+            "Annual outage:",
+            f"{plan.annual_outage_min:.1f} min" if plan.annual_outage_min is not None else "-",
+            label_width,
+            page_width,
+        )
+        if plan.warnings:
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.setFillColor(HexColor("#7c2d12"))
+            pdf.drawString(16 * mm, y, "Ostrzezenia:")
+            y -= 5.0 * mm
+            pdf.setFont("Helvetica", 8)
+            pdf.setFillColor(HexColor("#0f172a"))
+            for warning in plan.warnings[:3]:
+                pdf.drawString(20 * mm, y, _fit_text(pdf, f"- {warning}", page_width - 36 * mm, "Helvetica", 8))
+                y -= 4.5 * mm
 
     y -= 2 * mm
     pdf.setFont("Helvetica-Bold", 11)

@@ -189,11 +189,38 @@ class ChannelInterferenceChart(BaseModel):
     items: list[ChannelInterferenceBar] = Field(default_factory=list)
 
 
+class LinkBudgetPlan(BaseModel):
+    channel_label: Optional[str] = None
+    channel_ab: Optional[str] = None
+    channel_ba: Optional[str] = None
+    polarization: Optional[str] = None
+    status: Optional[str] = None
+    gate_status: Optional[str] = None
+    path_length_km: Optional[float] = None
+    planned_modulation: Optional[str] = None
+    lowest_modulation: Optional[str] = None
+    atpc_enabled: bool = True
+    min_tx_power_dbm: Optional[float] = None
+    set_rx_power_dbm: Optional[float] = None
+    min_rx_power_dbm: Optional[float] = None
+    ko_tx_power_dbm: Optional[float] = None
+    ko_rx_power_dbm: Optional[float] = None
+    max_tx_power_dbm: Optional[float] = None
+    planned_margin_db: Optional[float] = None
+    planned_annual_reliability_pct: Optional[float] = None
+    planned_annual_outage_min: Optional[float] = None
+    annual_uninterruptibility_pct: Optional[float] = None
+    annual_outage_min: Optional[float] = None
+    warnings: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
 class AnalyzeResponse(BaseModel):
     request: AnalyzeRequestSummary
     map: AnalyzeMapSection
     summary: AnalyzeSummary
     channel_chart: ChannelInterferenceChart = Field(default_factory=ChannelInterferenceChart)
+    link_budget_plan: Optional[LinkBudgetPlan] = None
     recommendations: list[ChannelRecommendation] = Field(default_factory=list)
     conflicts: list[ConflictItem] = Field(default_factory=list)
     debug: dict[str, Any] = Field(default_factory=dict)

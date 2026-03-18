@@ -14,6 +14,7 @@
   const recommendationsTableBodyEl = document.querySelector("#recommendationsTable tbody");
   const channelChartStateEl = document.getElementById("channelChartState");
   const channelChartEl = document.getElementById("channelChart");
+  const linkBudgetPlanEl = document.getElementById("linkBudgetPlan");
   const conflictsTableBodyEl = document.querySelector("#conflictsTable tbody");
   const mapContainerEl = document.getElementById("map");
 
@@ -538,6 +539,100 @@
     `;
   }
 
+  function renderLinkBudgetPlan(plan) {
+    if (!linkBudgetPlanEl) {
+      return;
+    }
+
+    if (!plan) {
+      linkBudgetPlanEl.className = "ko-plan-empty";
+      linkBudgetPlanEl.textContent = "Uruchom analizę, aby policzyć robocze parametry KO, budżet łącza i niedostępność dla najlepszego kanału z całej puli.";
+      return;
+    }
+
+    const assumptionList = Array.isArray(plan.assumptions) && plan.assumptions.length
+      ? `<ul class="ko-plan-assumptions">${plan.assumptions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+      : "";
+    const warningList = Array.isArray(plan.warnings) && plan.warnings.length
+      ? `<div class="ko-plan-warnings"><div class="ko-plan-warnings-title">Ostrzeżenia</div><ul class="ko-plan-warning-list">${plan.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`
+      : "";
+
+    linkBudgetPlanEl.className = "ko-plan";
+    linkBudgetPlanEl.innerHTML = `
+      <div class="ko-plan-header">
+        <div>
+          <div class="ko-plan-title">Kanał globalnie najlepszy: ${escapeHtml(plan.channel_label || "-")}</div>
+          <div class="ko-plan-subtitle">Status silnika: ${escapeHtml(plan.status || "-")}${plan.gate_status ? ` | Access gate: ${escapeHtml(plan.gate_status)}` : ""}${plan.path_length_km != null ? ` | Długość trasy: ${escapeHtml(Number(plan.path_length_km).toFixed(2))} km` : ""}</div>
+        </div>
+      </div>
+      <div class="ko-plan-grid">
+        <section class="ko-plan-card">
+          <div class="ko-plan-card-title">ATPC</div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">ATPC</span>
+            <span class="ko-plan-value">${plan.atpc_enabled ? "ON" : "OFF"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Min Tx power [dBm]</span>
+            <span class="ko-plan-value">${plan.min_tx_power_dbm != null ? escapeHtml(Number(plan.min_tx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Max/set RX power [dBm]</span>
+            <span class="ko-plan-value">${plan.set_rx_power_dbm != null ? escapeHtml(Number(plan.set_rx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Min RX power [dBm]</span>
+            <span class="ko-plan-value">${plan.min_rx_power_dbm != null ? escapeHtml(Number(plan.min_rx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+        </section>
+        <section class="ko-plan-card">
+          <div class="ko-plan-card-title">KO / modulacja</div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Planned modulation</span>
+            <span class="ko-plan-value">${escapeHtml(plan.planned_modulation || "-")}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">KO TX power [dBm]</span>
+            <span class="ko-plan-value">${plan.ko_tx_power_dbm != null ? escapeHtml(Number(plan.ko_tx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">KO RX power [dBm]</span>
+            <span class="ko-plan-value">${plan.ko_rx_power_dbm != null ? escapeHtml(Number(plan.ko_rx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Max TX power [dBm]</span>
+            <span class="ko-plan-value">${plan.max_tx_power_dbm != null ? escapeHtml(Number(plan.max_tx_power_dbm).toFixed(1)) : "-"}</span>
+          </div>
+        </section>
+        <section class="ko-plan-card">
+          <div class="ko-plan-card-title">Budżet i niedostępność</div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Planned margin [dBm]</span>
+            <span class="ko-plan-value">${plan.planned_margin_db != null ? escapeHtml(Number(plan.planned_margin_db).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Planned annual reliability [%]</span>
+            <span class="ko-plan-value">${plan.planned_annual_reliability_pct != null ? escapeHtml(Number(plan.planned_annual_reliability_pct).toFixed(4)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Planned annual outage [min]</span>
+            <span class="ko-plan-value">${plan.planned_annual_outage_min != null ? escapeHtml(Number(plan.planned_annual_outage_min).toFixed(1)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Annual uninterruptibility [%]</span>
+            <span class="ko-plan-value">${plan.annual_uninterruptibility_pct != null ? escapeHtml(Number(plan.annual_uninterruptibility_pct).toFixed(4)) : "-"}</span>
+          </div>
+          <div class="ko-plan-field">
+            <span class="ko-plan-label">Annual outage [min]</span>
+            <span class="ko-plan-value">${plan.annual_outage_min != null ? escapeHtml(Number(plan.annual_outage_min).toFixed(1)) : "-"}</span>
+          </div>
+        </section>
+      </div>
+      ${warningList}
+      ${assumptionList}
+    `;
+  }
+
   function renderConflicts(conflicts) {
     if (!conflicts || conflicts.length === 0) {
       conflictsTableBodyEl.innerHTML = `
@@ -633,6 +728,7 @@
       });
       renderRecommendations([], null);
       renderChannelChart(null);
+      renderLinkBudgetPlan(null);
       renderConflicts([]);
       clearMapLayers();
       currentAnalysisRequest = null;
@@ -673,6 +769,7 @@
       renderRequestSummary(payload.request || { upload_id: uploadId });
       renderRecommendations(payload.recommendations || [], payload.summary || null);
       renderChannelChart(payload.channel_chart || null);
+      renderLinkBudgetPlan(payload.link_budget_plan || null);
       renderConflicts(payload.conflicts || []);
       renderMap(payload.map);
       addRecentEntry({
@@ -697,6 +794,7 @@
       setUploadMessage(`Błąd analizy: ${error.message}`, "error");
       setDebug("POST /api/analyze ERROR", error.message);
       renderChannelChart(null);
+      renderLinkBudgetPlan(null);
     } finally {
       setAnalyzeButtonState(true, "Analizuj WLR");
     }
@@ -747,6 +845,7 @@
       renderRecentEntries();
       renderRecommendations([]);
       renderChannelChart(null);
+      renderLinkBudgetPlan(null);
       renderConflicts([]);
       setReportButtonState(false, "Pobierz PDF");
       await loadHealth();
