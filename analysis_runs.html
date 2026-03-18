@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log analiz WLR</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="page-header">
+      <div>
+        <h1>Log analiz WLR</h1>
+        <p class="subtitle">Osobny widok operatorski do obserwacji uruchomien analizy, czasow wykonania i wynikow bez grzebania w pliku JSONL.</p>
+      </div>
+      <div class="header-actions">
+        <nav class="header-links" aria-label="Nawigacja">
+          <a class="header-link" href="/">Dashboard</a>
+          <a class="header-link" href="/workflow" target="_blank" rel="noopener">Workflow UKE</a>
+        </nav>
+        <div class="status-pill" id="runsHealthStatus">Runs: ladowanie</div>
+      </div>
+    </header>
+
+    <main class="layout-grid">
+      <section class="panel panel-wide">
+        <div class="toolbar-row">
+          <div class="toggle-row">
+            <button type="button" id="refreshRunsBtn">Odswiez</button>
+            <label><input type="checkbox" id="autoRefreshRuns" checked> Auto-refresh 15s</label>
+          </div>
+          <div id="runsMeta" class="pill-note">Brak danych</div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <h2>Podsumowanie</h2>
+        </div>
+        <div id="runsSummary" class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-card-label">Status</span>
+            <span class="stat-card-value">Ladowanie...</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide">
+        <div class="panel-header">
+          <h2>Ostatnie uruchomienia</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Koniec</th>
+                <th>Czas [s]</th>
+                <th>Status</th>
+                <th>Trigger</th>
+                <th>Link</th>
+                <th>Zadany kanal</th>
+                <th>Najlepszy kanal</th>
+                <th>Wynik</th>
+              </tr>
+            </thead>
+            <tbody id="runsTableBody">
+              <tr><td colspan="8" class="empty-cell">Brak wpisow.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/runs.js"></script>
+</body>
+</html>

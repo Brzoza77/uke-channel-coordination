@@ -213,6 +213,17 @@ W dashboardzie zobaczysz:
 - tabelę `CONDITIONAL / REJECTED`
 - wykres degradacji `TDmax` dla całego badanego pasma z progiem `1 dB`
 
+### 7. Widoki operatorskie w osobnych kartach
+
+Po starcie aplikacji masz od razu dwa dodatkowe widoki:
+
+- `http://localhost:8012/analysis-runs`
+- `http://localhost:8012/workflow`
+
+Pierwszy pokazuje log `WLR` z czasami wykonania.
+Drugi rysuje workflow bazy UKE na podstawie `logs/uke_workflow_graph.json`,
+ktory jest odswiezany przez `./refresh_uke_sqlite.sh`.
+
 ### 6. Wygeneruj PDF
 
 Po analizie:

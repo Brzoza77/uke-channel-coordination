@@ -34,6 +34,27 @@ const ApiClient = (() => {
     return handleJsonResponse(response);
   }
 
+  async function getAnalysisRuns(limit = 200) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    const response = await fetch(`/api/analysis-runs?${query.toString()}`, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+    return handleJsonResponse(response);
+  }
+
+  async function getWorkflowGraph() {
+    const response = await fetch("/api/workflow-graph", {
+      method: "GET",
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+    return handleJsonResponse(response);
+  }
+
   async function uploadWlr(file) {
     if (!(file instanceof File)) {
       throw new Error("Brak poprawnego pliku do wysłania.");
@@ -76,6 +97,8 @@ const ApiClient = (() => {
   return {
     getHealth,
     getSource,
+    getAnalysisRuns,
+    getWorkflowGraph,
     uploadWlr,
     analyzeWlr,
     buildReportUrl

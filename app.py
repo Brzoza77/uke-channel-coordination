@@ -54,6 +54,10 @@ REPORTS_DIR = BASE_DIR / "reports"
 LOGS_DIR = BASE_DIR / "logs"
 ANALYSIS_RUN_LOG = LOGS_DIR / "wlr_analysis_runs.jsonl"
 INDEX_FILE = BASE_DIR / "index.html"
+ANALYSIS_RUNS_INDEX_FILE = BASE_DIR / "analysis_runs.html"
+WORKFLOW_INDEX_FILE = BASE_DIR / "workflow.html"
+WORKFLOW_GRAPH_JSON = LOGS_DIR / "uke_workflow_graph.json"
+WORKFLOW_GRAPH_DOT = LOGS_DIR / "uke_workflow_graph.dot"
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -103,6 +107,20 @@ def root() -> FileResponse:
     return FileResponse(str(INDEX_FILE))
 
 
+@app.get("/analysis-runs", include_in_schema=False)
+def analysis_runs_page() -> FileResponse:
+    if not ANALYSIS_RUNS_INDEX_FILE.exists():
+        raise HTTPException(status_code=404, detail="Brak pliku analysis_runs.html")
+    return FileResponse(str(ANALYSIS_RUNS_INDEX_FILE))
+
+
+@app.get("/workflow", include_in_schema=False)
+def workflow_page() -> FileResponse:
+    if not WORKFLOW_INDEX_FILE.exists():
+        raise HTTPException(status_code=404, detail="Brak pliku workflow.html")
+    return FileResponse(str(WORKFLOW_INDEX_FILE))
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def api_health() -> HealthResponse:
     return HealthResponse(engine_version=ENGINE_VERSION)
@@ -132,6 +150,61 @@ def api_source() -> SourceSummaryResponse:
         plans_count=plans["plans_count"],
         plan_files_count=plans["loaded_files_count"],
     )
+
+
+def _load_analysis_runs(limit: int) -> list[dict]:
+    if not ANALYSIS_RUN_LOG.exists():
+        return []
+
+    items: list[dict] = []
+    with ANALYSIS_RUN_LOG.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                items.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    if limit > 0:
+        items = items[-limit:]
+    items.reverse()
+    return items
+
+
+@app.get("/api/analysis-runs")
+def api_analysis_runs(limit: int = 200) -> dict:
+    bounded_limit = max(1, min(limit, 1000))
+    items = _load_analysis_runs(bounded_limit)
+    return {
+        "log_path": str(ANALYSIS_RUN_LOG),
+        "count": len(items),
+        "items": items,
+    }
+
+
+@app.get("/api/workflow-graph")
+def api_workflow_graph() -> dict:
+    if not WORKFLOW_GRAPH_JSON.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Brak workflow graph. Najpierw uruchom ./refresh_uke_sqlite.sh",
+        )
+    payload = json.loads(WORKFLOW_GRAPH_JSON.read_text(encoding="utf-8"))
+    payload["dot_available"] = WORKFLOW_GRAPH_DOT.exists()
+    payload["dot_url"] = "/workflow-graph.dot" if WORKFLOW_GRAPH_DOT.exists() else None
+    return payload
+
+
+@app.get("/workflow-graph.dot", include_in_schema=False)
+def workflow_dot() -> FileResponse:
+    if not WORKFLOW_GRAPH_DOT.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Brak workflow graph DOT. Najpierw uruchom ./refresh_uke_sqlite.sh",
+        )
+    return FileResponse(str(WORKFLOW_GRAPH_DOT), media_type="text/plain; charset=utf-8")
 
 
 @app.post("/api/upload-wlr", response_model=UploadWlrSummaryResponse)
