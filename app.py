@@ -63,7 +63,8 @@ ANALYSIS_LOG_LOCK = threading.Lock()
 
 WORKING_ATPC_ENABLED = True
 WORKING_KO_RX_TARGET_DBM = -36.0
-WORKING_SET_RX_TARGET_DBM = -40.0
+WORKING_ATPC_RX_MAX_SET_DBM = -35.0
+WORKING_ATPC_RX_MIN_DBM = -40.0
 WORKING_MIN_TX_FLOOR_DBM = -5.0
 WORKING_RX_OVERDRIVE_WARNING_DBM = -25.0
 WORKING_MAX_TX_FALLBACK_DBM = 18.0
@@ -288,7 +289,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         - tx_gain_a_dbi
     )
     set_tx_ab_dbm = (
-        WORKING_SET_RX_TARGET_DBM
+        WORKING_ATPC_RX_MIN_DBM
         + clear_loss_ab_db
         + WORKING_TX_CHAIN_LOSS_DB
         + WORKING_RX_CHAIN_LOSS_DB
@@ -296,7 +297,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         - tx_gain_b_dbi
     )
     set_tx_ba_dbm = (
-        WORKING_SET_RX_TARGET_DBM
+        WORKING_ATPC_RX_MIN_DBM
         + clear_loss_ba_db
         + WORKING_TX_CHAIN_LOSS_DB
         + WORKING_RX_CHAIN_LOSS_DB
@@ -370,7 +371,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
 
     assumptions = [
         "KO RX target fixed at -36 dBm",
-        "ATPC set RX target fixed at -40 dBm",
+        "ATPC expected RX window fixed at -35 to -40 dBm",
         f"KO planned modulation fixed to {WORKING_PLANNED_MODULATION_FALLBACK}",
         "Availability metrics assume ATPC can ramp up to Max TX before declaring outage",
         "Global outage counted at max TX and lowest modulation 4QAM/QPSK",
@@ -400,6 +401,11 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     if best_min_rsl_dbm > WORKING_RX_OVERDRIVE_WARNING_DBM:
         warnings.append(
             f"Przy minimalnej mocy TX {min_tx_power_dbm:.1f} dBm poziom RX moze przekroczyc {WORKING_RX_OVERDRIVE_WARNING_DBM:.0f} dBm "
+            f"(najwyzej {best_min_rsl_dbm:.1f} dBm)."
+        )
+    if best_min_rsl_dbm > WORKING_ATPC_RX_MAX_SET_DBM:
+        warnings.append(
+            f"Przy minimalnej mocy TX {min_tx_power_dbm:.1f} dBm gorna granica okna ATPC {WORKING_ATPC_RX_MAX_SET_DBM:.0f} dBm moze byc przekroczona "
             f"(najwyzej {best_min_rsl_dbm:.1f} dBm)."
         )
     if best_ko_rsl_dbm > WORKING_RX_OVERDRIVE_WARNING_DBM:
@@ -436,16 +442,16 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         planned_modulation=modulation_key,
         lowest_modulation=lowest_modulation_key,
         atpc_enabled=WORKING_ATPC_ENABLED,
-        min_tx_power_dbm=round(min_tx_power_dbm, 1),
-        set_rx_power_dbm=WORKING_SET_RX_TARGET_DBM,
-        min_rx_power_dbm=lowest_sensitivity_dbm,
-        ko_tx_power_dbm=round(ko_tx_power_dbm, 1),
-        ko_rx_power_dbm=WORKING_KO_RX_TARGET_DBM,
-        max_tx_power_dbm=round(max_tx_power_dbm, 1),
+        min_tx_power_dbm=round(min_tx_power_dbm),
+        set_rx_power_dbm=round(WORKING_ATPC_RX_MAX_SET_DBM),
+        min_rx_power_dbm=round(WORKING_ATPC_RX_MIN_DBM),
+        ko_tx_power_dbm=round(ko_tx_power_dbm),
+        ko_rx_power_dbm=round(WORKING_KO_RX_TARGET_DBM),
+        max_tx_power_dbm=round(max_tx_power_dbm),
         planned_margin_db=round(planned_margin_db, 1),
-        planned_annual_reliability_pct=round(100.0 - planned_annual_outage_pct, 4),
+        planned_annual_reliability_pct=round(100.0 - planned_annual_outage_pct, 2),
         planned_annual_outage_min=round(planned_annual_outage_pct / 100.0 * minutes_per_year, 1),
-        annual_uninterruptibility_pct=round(100.0 - annual_outage_pct, 4),
+        annual_uninterruptibility_pct=round(100.0 - annual_outage_pct, 2),
         annual_outage_min=round(annual_outage_pct / 100.0 * minutes_per_year, 1),
         warnings=warnings,
         assumptions=assumptions,
@@ -1332,27 +1338,27 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
 
         plan = response.link_budget_plan
         y = _draw_kv_row(pdf, y, "Kanal:", plan.channel_label or "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Planned modulation:", plan.planned_modulation or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Planowana modulacja:", plan.planned_modulation or "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "ATPC:", "ON" if plan.atpc_enabled else "OFF", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Min TX [dBm]:", f"{plan.min_tx_power_dbm:.1f}" if plan.min_tx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Set RX [dBm]:", f"{plan.set_rx_power_dbm:.1f}" if plan.set_rx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Min RX [dBm]:", f"{plan.min_rx_power_dbm:.1f}" if plan.min_rx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "KO TX [dBm]:", f"{plan.ko_tx_power_dbm:.1f}" if plan.ko_tx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "KO RX [dBm]:", f"{plan.ko_rx_power_dbm:.1f}" if plan.ko_rx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Max TX [dBm]:", f"{plan.max_tx_power_dbm:.1f}" if plan.max_tx_power_dbm is not None else "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Planned margin [dB]:", f"{plan.planned_margin_db:.1f}" if plan.planned_margin_db is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Min moc nadajnika [dBm]:", f"{plan.min_tx_power_dbm:.0f}" if plan.min_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Maks./ust. moc odbierana [dBm]:", f"{plan.set_rx_power_dbm:.0f}" if plan.set_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Min moc odbierana [dBm]:", f"{plan.min_rx_power_dbm:.0f}" if plan.min_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "KO moc nadajnika [dBm]:", f"{plan.ko_tx_power_dbm:.0f}" if plan.ko_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "KO moc odbierana [dBm]:", f"{plan.ko_rx_power_dbm:.0f}" if plan.ko_rx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Maks. moc nadajnika [dBm]:", f"{plan.max_tx_power_dbm:.0f}" if plan.max_tx_power_dbm is not None else "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Planowany margines [dB]:", f"{plan.planned_margin_db:.1f}" if plan.planned_margin_db is not None else "-", label_width, page_width)
         y = _draw_kv_row(
             pdf,
             y,
-            "Planned annual reliability:",
-            f"{plan.planned_annual_reliability_pct:.4f} %" if plan.planned_annual_reliability_pct is not None else "-",
+            "Planowana roczna dostepnosc:",
+            f"{plan.planned_annual_reliability_pct:.2f} %" if plan.planned_annual_reliability_pct is not None else "-",
             label_width,
             page_width,
         )
         y = _draw_kv_row(
             pdf,
             y,
-            "Planned annual outage:",
+            "Planowana roczna niedostepnosc:",
             f"{plan.planned_annual_outage_min:.1f} min" if plan.planned_annual_outage_min is not None else "-",
             label_width,
             page_width,
@@ -1360,15 +1366,15 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
         y = _draw_kv_row(
             pdf,
             y,
-            "Annual uninterruptibility:",
-            f"{plan.annual_uninterruptibility_pct:.4f} %" if plan.annual_uninterruptibility_pct is not None else "-",
+            "Roczna nieprzerywalnosc:",
+            f"{plan.annual_uninterruptibility_pct:.2f} %" if plan.annual_uninterruptibility_pct is not None else "-",
             label_width,
             page_width,
         )
         y = _draw_kv_row(
             pdf,
             y,
-            "Annual outage:",
+            "Roczna niedostepnosc:",
             f"{plan.annual_outage_min:.1f} min" if plan.annual_outage_min is not None else "-",
             label_width,
             page_width,

@@ -573,57 +573,57 @@
             <span class="ko-plan-value">${plan.atpc_enabled ? "ON" : "OFF"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Min Tx power [dBm]</span>
-            <span class="ko-plan-value">${plan.min_tx_power_dbm != null ? escapeHtml(Number(plan.min_tx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">Min moc nadajnika [dBm]</span>
+            <span class="ko-plan-value">${plan.min_tx_power_dbm != null ? escapeHtml(Number(plan.min_tx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Max/set RX power [dBm]</span>
-            <span class="ko-plan-value">${plan.set_rx_power_dbm != null ? escapeHtml(Number(plan.set_rx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">Maks./ust. moc odbierana [dBm]</span>
+            <span class="ko-plan-value">${plan.set_rx_power_dbm != null ? escapeHtml(Number(plan.set_rx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Min RX power [dBm]</span>
-            <span class="ko-plan-value">${plan.min_rx_power_dbm != null ? escapeHtml(Number(plan.min_rx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">Min moc odbierana [dBm]</span>
+            <span class="ko-plan-value">${plan.min_rx_power_dbm != null ? escapeHtml(Number(plan.min_rx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
         </section>
         <section class="ko-plan-card">
           <div class="ko-plan-card-title">KO / modulacja</div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Planned modulation</span>
+            <span class="ko-plan-label">Planowana modulacja</span>
             <span class="ko-plan-value">${escapeHtml(plan.planned_modulation || "-")}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">KO TX power [dBm]</span>
-            <span class="ko-plan-value">${plan.ko_tx_power_dbm != null ? escapeHtml(Number(plan.ko_tx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">KO moc nadajnika [dBm]</span>
+            <span class="ko-plan-value">${plan.ko_tx_power_dbm != null ? escapeHtml(Number(plan.ko_tx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">KO RX power [dBm]</span>
-            <span class="ko-plan-value">${plan.ko_rx_power_dbm != null ? escapeHtml(Number(plan.ko_rx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">KO moc odbierana [dBm]</span>
+            <span class="ko-plan-value">${plan.ko_rx_power_dbm != null ? escapeHtml(Number(plan.ko_rx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Max TX power [dBm]</span>
-            <span class="ko-plan-value">${plan.max_tx_power_dbm != null ? escapeHtml(Number(plan.max_tx_power_dbm).toFixed(1)) : "-"}</span>
+            <span class="ko-plan-label">Maks. moc nadajnika [dBm]</span>
+            <span class="ko-plan-value">${plan.max_tx_power_dbm != null ? escapeHtml(Number(plan.max_tx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
         </section>
         <section class="ko-plan-card">
           <div class="ko-plan-card-title">Budżet i niedostępność</div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Planned margin [dBm]</span>
+            <span class="ko-plan-label">Planowany margines [dB]</span>
             <span class="ko-plan-value">${plan.planned_margin_db != null ? escapeHtml(Number(plan.planned_margin_db).toFixed(1)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Planned annual reliability [%]</span>
-            <span class="ko-plan-value">${plan.planned_annual_reliability_pct != null ? escapeHtml(Number(plan.planned_annual_reliability_pct).toFixed(4)) : "-"}</span>
+            <span class="ko-plan-label">Planowana roczna dostępność [%]</span>
+            <span class="ko-plan-value">${plan.planned_annual_reliability_pct != null ? escapeHtml(Number(plan.planned_annual_reliability_pct).toFixed(2)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Planned annual outage [min]</span>
+            <span class="ko-plan-label">Planowana roczna niedostępność [min]</span>
             <span class="ko-plan-value">${plan.planned_annual_outage_min != null ? escapeHtml(Number(plan.planned_annual_outage_min).toFixed(1)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Annual uninterruptibility [%]</span>
-            <span class="ko-plan-value">${plan.annual_uninterruptibility_pct != null ? escapeHtml(Number(plan.annual_uninterruptibility_pct).toFixed(4)) : "-"}</span>
+            <span class="ko-plan-label">Roczna nieprzerywalność [%]</span>
+            <span class="ko-plan-value">${plan.annual_uninterruptibility_pct != null ? escapeHtml(Number(plan.annual_uninterruptibility_pct).toFixed(2)) : "-"}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Annual outage [min]</span>
+            <span class="ko-plan-label">Roczna niedostępność [min]</span>
             <span class="ko-plan-value">${plan.annual_outage_min != null ? escapeHtml(Number(plan.annual_outage_min).toFixed(1)) : "-"}</span>
           </div>
         </section>
