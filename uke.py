@@ -378,6 +378,10 @@ def _load_internal_radio_profiles(sqlite_path_str: str = str(INTERNAL_SQLITE_PAT
     FROM lr_konsultacja_349__nadajnik n
     LEFT JOIN lr_konsultacja_349__producent prod
       ON prod.producent_id = n.producent_id
+    ORDER BY
+        COALESCE(prod.nazwa_producenta, ''),
+        COALESCE(n.typ_nadajnika, ''),
+        n.nadajnik_id
     """
     with sqlite3.connect(sqlite_path) as con:
         con.row_factory = sqlite3.Row
@@ -476,7 +480,14 @@ def lookup_internal_radio_profile(
             elif delta_bw <= max(channel_width_mhz, 1.0):
                 score += 0.5
 
-        if score > best_score:
+        if (
+            score > best_score
+            or (
+                best_profile is not None
+                and score == best_score
+                and profile.radio_id < best_profile.radio_id
+            )
+        ):
             best_score = score
             best_profile = profile
 
@@ -1491,7 +1502,7 @@ def load_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) 
     with sqlite3.connect(sqlite_path) as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
-        rows = cur.execute(_internal_catalog_query()).fetchall()
+        rows = cur.execute(_internal_catalog_query() + "\nORDER BY d.nrdecyzji, p.prz_s_o_id").fetchall()
 
     records: list[PermitRecord] = []
     for row in rows:
@@ -1550,6 +1561,7 @@ def _get_internal_duplex_links_window_cached(
     if channel_width_mhz is not None:
         query += "\n  AND pl.odstep_kanalowy BETWEEN ? AND ?"
         params.extend([channel_width_mhz - 0.001, channel_width_mhz + 0.001])
+    query += "\nORDER BY d.nrdecyzji, p.prz_s_o_id"
     with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
