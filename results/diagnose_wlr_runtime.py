@@ -132,6 +132,17 @@ def _candidate_links_snapshot(analysis, limit: int = 12) -> dict[str, object]:
             "site_a_lon": link.site_a.point.lon_deg,
             "site_b_lat": link.site_b.point.lat_deg,
             "site_b_lon": link.site_b.point.lon_deg,
+            "freq_ab_ghz": link.emission_ab.center_freq_ghz,
+            "freq_ba_ghz": link.emission_ba.center_freq_ghz,
+            "eirp_ab_dbm": link.emission_ab.eirp_dbm,
+            "eirp_ba_dbm": link.emission_ba.eirp_dbm,
+            "nf_ab_db": link.emission_ab.rx_noise_figure_db,
+            "nf_ba_db": link.emission_ba.rx_noise_figure_db,
+            "atpc_ab_db": link.emission_ab.atpc_attenuation_db,
+            "atpc_ba_db": link.emission_ba.atpc_attenuation_db,
+            "gain_a_dbi": link.site_a.antenna_gain_dbi,
+            "gain_b_dbi": link.site_b.antenna_gain_dbi,
+            "plan_symbol": link.plan_symbol,
         }
         h.update(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
         if len(sample) < limit:
@@ -141,6 +152,29 @@ def _candidate_links_snapshot(analysis, limit: int = 12) -> dict[str, object]:
         "sha256": h.hexdigest(),
         "sample": sample,
     }
+
+
+def _all_candidate_digests(analysis) -> list[dict[str, object]]:
+    rows = []
+    for record in sorted(
+        analysis.candidate_frequency_records,
+        key=lambda rec: (rec.channel_ab, rec.channel_ba, rec.polarization),
+    ):
+        rows.append(
+            {
+                "channel": f"{record.channel_ab}/{record.channel_ba} {record.polarization}",
+                "status": record.status,
+                "status_ab": record.status_ab,
+                "status_ba": record.status_ba,
+                "score": round(record.score, 6),
+                "pairwise_red_count": record.pairwise_red_count,
+                "pairwise_blocking_count": record.pairwise_blocking_count,
+                "worst_margin_ab_db": record.worst_margin_ab_db,
+                "worst_margin_ba_db": record.worst_margin_ba_db,
+                "digest": _record_digest(record),
+            }
+        )
+    return rows
 
 
 def _pairwise_rows(record, limit: int = 20) -> list[dict[str, object]]:
@@ -247,6 +281,7 @@ def main() -> None:
             "rejected_count": len(analysis.rejected_assessments),
         },
         "candidate_links_snapshot": _candidate_links_snapshot(analysis),
+        "all_candidate_digests": _all_candidate_digests(analysis),
         "top_candidates": top_candidates,
         "best_candidate_pairwise": _pairwise_rows(best) if best is not None else [],
     }
