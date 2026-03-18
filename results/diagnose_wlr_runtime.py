@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import analyze_wlr_request
-from uke import INTERNAL_SQLITE_PATH, get_source_summary, lookup_internal_radio_profile
+from uke import INTERNAL_SQLITE_PATH, _internal_catalog_query, get_source_summary, lookup_internal_radio_profile
 from wlr import build_wlr_request_summary, parse_wlr_file
 
 
@@ -59,6 +59,88 @@ def _record_digest(record) -> str:
         "gate_status": record.access_fkand_gate_status,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _catalog_digest(path: Path, limit: int = 5000) -> dict[str, object]:
+    query = (
+        _internal_catalog_query()
+        + """
+ORDER BY
+    d.nrdecyzji,
+    p.prz_s_o_id,
+    p.czestotliwosc_przydzielona,
+    COALESCE(st_n.operator, ''),
+    COALESCE(st_o.operator, '')
+LIMIT ?
+"""
+    )
+    with sqlite3.connect(path) as con:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(query, (limit,)).fetchall()
+
+    sample_rows = []
+    h = hashlib.sha256()
+    for row in rows:
+        payload = {
+            "permit_number": row["permit_number"],
+            "span_id": row["span_id"],
+            "assigned_frequency_ghz": row["assigned_frequency_ghz"],
+            "plan_symbol": row["plan_symbol"],
+            "tx_power_dbm": row["tx_power_dbm"],
+            "tx_lat": row["tx_lat"],
+            "tx_lon": row["tx_lon"],
+            "rx_lat": row["rx_lat"],
+            "rx_lon": row["rx_lon"],
+            "tx_operator": row["tx_operator"],
+            "rx_operator": row["rx_operator"],
+            "typ_nadajnika": row["typ_nadajnika"],
+            "radio_vendor": row["radio_vendor"],
+            "tx_antenna_gain_dbi": row["tx_antenna_gain_dbi"],
+            "rx_antenna_gain_dbi": row["rx_antenna_gain_dbi"],
+        }
+        h.update(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        if len(sample_rows) < 8:
+            sample_rows.append(payload)
+    return {
+        "rows_hashed": len(rows),
+        "sha256": h.hexdigest(),
+        "sample_rows": sample_rows,
+    }
+
+
+def _candidate_links_snapshot(analysis, limit: int = 12) -> dict[str, object]:
+    ordered = sorted(
+        analysis.candidate_links,
+        key=lambda link: (
+            link.link_id,
+            link.permit_number or "",
+            link.site_a.point.lat_deg,
+            link.site_a.point.lon_deg,
+        ),
+    )
+    sample = []
+    h = hashlib.sha256()
+    for link in ordered:
+        payload = {
+            "link_id": link.link_id,
+            "permit_number": link.permit_number,
+            "operator_name": link.operator_name,
+            "channel_ab": link.channel_ab,
+            "channel_ba": link.channel_ba,
+            "polarization": link.polarization,
+            "site_a_lat": link.site_a.point.lat_deg,
+            "site_a_lon": link.site_a.point.lon_deg,
+            "site_b_lat": link.site_b.point.lat_deg,
+            "site_b_lon": link.site_b.point.lon_deg,
+        }
+        h.update(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+        if len(sample) < limit:
+            sample.append(payload)
+    return {
+        "count": len(ordered),
+        "sha256": h.hexdigest(),
+        "sample": sample,
+    }
 
 
 def _pairwise_rows(record, limit: int = 20) -> list[dict[str, object]]:
@@ -141,6 +223,7 @@ def main() -> None:
             "git_commit": _git_commit(),
         },
         "sqlite": _sqlite_signature(INTERNAL_SQLITE_PATH),
+        "catalog_digest": _catalog_digest(INTERNAL_SQLITE_PATH),
         "source_summary": source,
         "request": build_wlr_request_summary(request),
         "request_radio_profile": (
@@ -163,6 +246,7 @@ def main() -> None:
             "conditional_count": len(analysis.conditional_assessments),
             "rejected_count": len(analysis.rejected_assessments),
         },
+        "candidate_links_snapshot": _candidate_links_snapshot(analysis),
         "top_candidates": top_candidates,
         "best_candidate_pairwise": _pairwise_rows(best) if best is not None else [],
     }
