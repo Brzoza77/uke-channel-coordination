@@ -687,11 +687,11 @@
         <section class="ko-plan-card">
           <div class="ko-plan-card-title">KO / modulacja</div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Planowana modulacja</span>
+            <span class="ko-plan-label">Planowana modulacja (WLR)</span>
             <span class="ko-plan-value">${escapeHtml(plan.planned_modulation || "-")}</span>
           </div>
           <div class="ko-plan-field">
-            <span class="ko-plan-label">Najniższa modulacja</span>
+            <span class="ko-plan-label">Najniższa modulacja (robocza)</span>
             <span class="ko-plan-value">${escapeHtml(plan.lowest_modulation || "-")}</span>
           </div>
           <div class="ko-plan-field">

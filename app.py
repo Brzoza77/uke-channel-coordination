@@ -467,15 +467,17 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         "Jeżeli zysk anteny z WLR jest pusty lub niewiarygodnie niski dla E-band, używana jest wartość zastępcza 50.5 dBi",
     ]
     if configured_modulation_key:
-        assumptions.append(f"Planowaną modulację KO pobrano z WLR: {configured_modulation_key}")
+        assumptions.append(f"Planowaną modulację KO pobrano bezpośrednio z WLR: {configured_modulation_key}")
     else:
         assumptions.append(
             f"WLR nie podał użytecznej planowanej modulacji; dla KO użyto wartości zastępczej {WORKING_PLANNED_MODULATION_FALLBACK}"
         )
     assumptions.append(
-        f"Najniższa modulacja do liczenia niedostępności używa wartości zastępczej {lowest_modulation_label}, dopóki w WLR nie będzie jawnego pola"
+        f"Najniższa modulacja do liczenia niedostępności używa obecnie wartości roboczej {lowest_modulation_label}, dopóki WLR nie wystawi osobnego pola minimum/reference"
     )
-    assumptions.append("Aktualny parser WLR widzi w tym formacie tylko jedno jawne pole modulacji; osobne pola planned/reference/lowest nie są jeszcze wystawione przez plik")
+    assumptions.append(
+        "Ten format WLR przekazuje jedno jawne pole modulacji, które traktujemy jako planowaną modulację KO; osobnych pól reference/lowest parser jeszcze nie dostaje."
+    )
     if configured_tx_dbm is not None:
         assumptions.append(
             f"WLR podaje TX={configured_tx_dbm:.1f} dBm; do planowania przyjęto limit {max_tx_power_dbm:.1f} dBm do czasu potwierdzenia maksymalnej mocy z UKE lub od producenta"
@@ -1527,8 +1529,8 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
 
         plan = response.link_budget_plan
         y = _draw_kv_row(pdf, y, "Kanal:", plan.channel_label or "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Planowana modulacja:", plan.planned_modulation or "-", label_width, page_width)
-        y = _draw_kv_row(pdf, y, "Najnizsza modulacja:", plan.lowest_modulation or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Planowana modulacja (WLR):", plan.planned_modulation or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Najnizsza modulacja (robocza):", plan.lowest_modulation or "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "ATPC:", "ON" if plan.atpc_enabled else "OFF", label_width, page_width)
         y = _draw_kv_row(pdf, y, "Min moc nadajnika [dBm]:", f"{plan.min_tx_power_dbm:.0f}" if plan.min_tx_power_dbm is not None else "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "Maks./ust. moc odbierana [dBm]:", f"{plan.set_rx_power_dbm:.0f}" if plan.set_rx_power_dbm is not None else "-", label_width, page_width)
