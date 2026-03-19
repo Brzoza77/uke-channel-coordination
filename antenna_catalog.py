@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 import sqlite3
 from typing import Optional
 
@@ -14,6 +15,64 @@ def _normalize_text(value: Optional[str]) -> str:
     if value is None:
         return ""
     return " ".join(value.strip().lower().split())
+
+
+def _normalize_vendor_key(value: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _normalize_text(value))
+
+
+def _normalize_antenna_type_tokens(value: Optional[str]) -> tuple[str, ...]:
+    tokens = re.findall(r"[a-z0-9.]+", _normalize_text(value))
+    normalized: list[str] = []
+    for token in tokens:
+        if token in {"c"}:
+            continue
+        if token in {"hpx", "hpy"}:
+            token = "hp"
+        if token == "wr":
+            continue
+        if not normalized or normalized[-1] != token:
+            normalized.append(token)
+    return tuple(normalized)
+
+
+def _normalize_antenna_type_key(value: Optional[str]) -> str:
+    return "".join(_normalize_antenna_type_tokens(value))
+
+
+def _vendor_match_score(query_vendor: str, candidate_vendor: str) -> int:
+    if not query_vendor or not candidate_vendor:
+        return 0
+    if query_vendor == candidate_vendor:
+        return 1000
+    if query_vendor in candidate_vendor or candidate_vendor in query_vendor:
+        return 100
+    return 0
+
+
+def _antenna_type_match_score(
+    query_tokens: tuple[str, ...],
+    query_key: str,
+    candidate_tokens: tuple[str, ...],
+    candidate_key: str,
+) -> int:
+    if not query_tokens or not candidate_tokens:
+        return 0
+    if query_key == candidate_key:
+        return 2000
+
+    score = 0
+    if query_tokens[0] == candidate_tokens[0]:
+        score += 300
+
+    shared = set(query_tokens) & set(candidate_tokens)
+    score += len(shared) * 40
+
+    if query_tokens[-1] == candidate_tokens[-1]:
+        score += 40
+
+    score -= abs(len(query_tokens) - len(candidate_tokens)) * 5
+    return max(score, 0)
 
 
 def catalog_exists(path: Path | str = DEFAULT_CATALOG_PATH) -> bool:
@@ -31,34 +90,51 @@ def _load_pattern_points(
     if not db_path.exists():
         return ()
 
+    query_type_key = _normalize_antenna_type_key(antenna_type)
+    query_type_tokens = _normalize_antenna_type_tokens(antenna_type)
+    query_vendor_key = _normalize_vendor_key(vendor)
+
     with sqlite3.connect(db_path) as conn:
-        best_band = conn.execute(
+        candidate_rows = conn.execute(
             """
-            SELECT ab.band_id
+            SELECT
+              ab.band_id,
+              a.antenna_type,
+              p.producer_name,
+              ABS(((ab.freq_low_ghz + ab.freq_high_ghz) / 2.0) - ?) AS freq_distance,
+              COALESCE(ab.gain_dbi, 0.0) AS gain_dbi
             FROM antenna_bands ab
             JOIN antennas a ON a.antenna_id = ab.antenna_id
             JOIN producers p ON p.producer_id = a.producer_id
-            WHERE lower(a.antenna_type) = ?
-              AND lower(p.producer_name) = ?
-              AND ab.freq_low_ghz <= ?
+            WHERE ab.freq_low_ghz <= ?
               AND ab.freq_high_ghz >= ?
-            ORDER BY
-              ABS(((ab.freq_low_ghz + ab.freq_high_ghz) / 2.0) - ?),
-              COALESCE(ab.gain_dbi, 0.0) DESC,
-              ab.band_id
-            LIMIT 1
             """,
             (
-                antenna_type,
-                vendor,
                 rounded_freq_mhz / 1000.0,
                 rounded_freq_mhz / 1000.0,
                 rounded_freq_mhz / 1000.0,
             ),
-        ).fetchone()
+        ).fetchall()
 
-        if best_band is None:
+        scored_rows: list[tuple[int, int, float, float, int]] = []
+        for band_id, candidate_type, candidate_vendor, freq_distance, gain_dbi in candidate_rows:
+            vendor_score = _vendor_match_score(query_vendor_key, _normalize_vendor_key(candidate_vendor))
+            if vendor_score <= 0:
+                continue
+            type_tokens = _normalize_antenna_type_tokens(candidate_type)
+            type_key = _normalize_antenna_type_key(candidate_type)
+            type_score = _antenna_type_match_score(query_type_tokens, query_type_key, type_tokens, type_key)
+            if type_score <= 0:
+                continue
+            scored_rows.append((vendor_score, type_score, -float(freq_distance), float(gain_dbi), int(band_id)))
+
+        if not scored_rows:
             return ()
+
+        best_band_id = sorted(
+            scored_rows,
+            key=lambda item: (-item[0], -item[1], -item[2], -item[3], item[4]),
+        )[0][4]
 
         rows = conn.execute(
             """
@@ -68,7 +144,7 @@ def _load_pattern_points(
             GROUP BY azimuth_deg
             ORDER BY azimuth_deg
             """,
-            (int(best_band[0]),),
+            (best_band_id,),
         ).fetchall()
 
     if not rows:

@@ -1469,33 +1469,24 @@ def _endpoint_discrimination_metrics(
     victim_rx_freq_ghz: Optional[float] = None,
 ) -> dict[str, Any]:
     coupling_distance_km = _site_distance_km(tx_site, victim_rx_site)
-    if coupling_distance_km <= SITE_MATCH_THRESHOLD_KM:
-        return {
-            "total_penalty_db": 0.0,
-            "coupling_distance_km": coupling_distance_km,
-            "tx_main_azimuth_deg": None,
-            "tx_main_elevation_deg": None,
-            "tx_interference_azimuth_deg": None,
-            "tx_interference_elevation_deg": None,
-            "rx_main_azimuth_deg": None,
-            "rx_main_elevation_deg": None,
-            "rx_interference_azimuth_deg": None,
-            "rx_interference_elevation_deg": None,
-            "tx_off_axis_deg": None,
-            "rx_off_axis_deg": None,
-            "tx_penalty_db": 0.0,
-            "rx_penalty_db": 0.0,
-            "used_catalog_pattern": False,
-        }
+    same_site_coupling = coupling_distance_km <= SITE_MATCH_THRESHOLD_KM
 
     tx_main_bearing = _bearing_between_sites(tx_site, intended_rx_site)
-    tx_interference_bearing = _bearing_between_sites(tx_site, victim_rx_site)
     rx_main_bearing = _bearing_between_sites(victim_rx_site, victim_desired_tx_site)
-    rx_interference_bearing = _bearing_between_sites(victim_rx_site, tx_site)
     tx_main_elevation = _elevation_between_sites(tx_site, intended_rx_site)
-    tx_interference_elevation = _elevation_between_sites(tx_site, victim_rx_site)
     rx_main_elevation = _elevation_between_sites(victim_rx_site, victim_desired_tx_site)
-    rx_interference_elevation = _elevation_between_sites(victim_rx_site, tx_site)
+    if same_site_coupling:
+        # For co-sited TX->RX coupling we approximate the leakage direction by
+        # the boresight of the other antenna mounted on the same site.
+        tx_interference_bearing = rx_main_bearing
+        tx_interference_elevation = rx_main_elevation
+        rx_interference_bearing = tx_main_bearing
+        rx_interference_elevation = tx_main_elevation
+    else:
+        tx_interference_bearing = _bearing_between_sites(tx_site, victim_rx_site)
+        tx_interference_elevation = _elevation_between_sites(tx_site, victim_rx_site)
+        rx_interference_bearing = _bearing_between_sites(victim_rx_site, tx_site)
+        rx_interference_elevation = _elevation_between_sites(victim_rx_site, tx_site)
 
     tx_penalty_db = 0.0
     rx_penalty_db = 0.0
@@ -1561,7 +1552,7 @@ def _endpoint_discrimination_metrics(
             "rx_penalty_db": rx_penalty_db,
             "used_catalog_pattern": True,
         }
-    if coupling_distance_km <= 1.0:
+    if SITE_MATCH_THRESHOLD_KM < coupling_distance_km <= 1.0:
         total_penalty_db = min(total_penalty_db, 12.0)
     if coupling_distance_km <= 2.0:
         total_penalty_db = min(total_penalty_db, 24.0)
