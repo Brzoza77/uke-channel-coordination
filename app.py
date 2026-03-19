@@ -341,6 +341,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     configured_modulation_key = _normalize_modulation_label(parsed_request.modulation)
     modulation_key = configured_modulation_key or WORKING_PLANNED_MODULATION_FALLBACK
     lowest_modulation_key = WORKING_LOWEST_MODULATION
+    lowest_modulation_label = "4QAM/QPSK"
 
     planned_sensitivity_dbm = ATOLL_SENSITIVITY_DBM[modulation_key]
     lowest_sensitivity_dbm = ATOLL_SENSITIVITY_DBM[lowest_modulation_key]
@@ -461,8 +462,9 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
             f"WLR did not provide a usable planned modulation; fallback {WORKING_PLANNED_MODULATION_FALLBACK} used for KO"
         )
     assumptions.append(
-        f"Lowest modulation for outage uses fallback {lowest_modulation_key} until explicit field is available in WLR"
+        f"Lowest modulation for outage uses fallback {lowest_modulation_label} until explicit field is available in WLR"
     )
+    assumptions.append("Current WLR parser sees only one explicit modulation field in this format; separate planned/reference/lowest fields are not yet exposed by the file")
     if configured_tx_dbm is not None:
         assumptions.append(
             f"Configured WLR TX found: {configured_tx_dbm:.1f} dBm; planning cap uses {max_tx_power_dbm:.1f} dBm "
@@ -525,7 +527,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         gate_status=record.access_fkand_gate_status,
         path_length_km=round(path_length_km, 3),
         planned_modulation=modulation_key,
-        lowest_modulation=lowest_modulation_key,
+        lowest_modulation=lowest_modulation_label,
         atpc_enabled=WORKING_ATPC_ENABLED,
         min_tx_power_dbm=round(min_tx_power_dbm),
         set_rx_power_dbm=round(WORKING_ATPC_RX_MAX_SET_DBM),

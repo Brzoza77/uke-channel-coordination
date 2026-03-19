@@ -438,7 +438,10 @@
       return;
     }
 
-    recommendationsTableBodyEl.innerHTML = recommendations.slice(0, 10).map((item) => {
+    const isXpic = String(currentAnalysisRequest?.requested_polarization || "").toUpperCase() === "X";
+    const rows = isXpic ? groupRecommendationRowsForXpic(recommendations) : recommendations.slice(0, 10);
+
+    recommendationsTableBodyEl.innerHTML = rows.map((item) => {
       const status = item.status || item.details?.status || "UNKNOWN";
       const reasonText = item.rejection_reasons && item.rejection_reasons.length
         ? item.rejection_reasons.slice(0, 3).join("; ")
@@ -553,6 +556,68 @@
     `;
   }
 
+  function statusRankValue(status) {
+    if (status === "ACCEPTED") {
+      return 0;
+    }
+    if (status === "CONDITIONAL") {
+      return 1;
+    }
+    if (status === "REJECTED") {
+      return 2;
+    }
+    return 9;
+  }
+
+  function groupRecommendationRowsForXpic(recommendations) {
+    const groups = new Map();
+    recommendations.forEach((item) => {
+      const key = `${item.channel_ab}__${item.channel_ba}`;
+      const existing = groups.get(key) || {
+        channel_ab: item.channel_ab,
+        channel_ba: item.channel_ba,
+        polarization: "HV",
+        status: item.status || "UNKNOWN",
+        score: Number(item.score || 0),
+        red_conflicts: Number(item.red_conflicts || 0),
+        candidate_links_count: Number(item.candidate_links_count || 0),
+        rejection_reasons: [],
+        summary: item.summary || null,
+        best_explanation: item.best_explanation || null,
+        componentStatuses: {},
+      };
+      existing.status = statusRankValue(item.status) > statusRankValue(existing.status) ? item.status : existing.status;
+      existing.score = Math.max(existing.score, Number(item.score || 0));
+      existing.red_conflicts = Math.max(existing.red_conflicts, Number(item.red_conflicts || 0));
+      existing.candidate_links_count = Math.max(existing.candidate_links_count, Number(item.candidate_links_count || 0));
+      if (item.polarization) {
+        existing.componentStatuses[item.polarization] = item.status || "UNKNOWN";
+      }
+      for (const reason of item.rejection_reasons || []) {
+        if (!existing.rejection_reasons.includes(reason)) {
+          existing.rejection_reasons.push(reason);
+        }
+      }
+      groups.set(key, existing);
+    });
+
+    return Array.from(groups.values())
+      .sort((left, right) => {
+        const statusDelta = statusRankValue(left.status) - statusRankValue(right.status);
+        if (statusDelta !== 0) {
+          return statusDelta;
+        }
+        return left.score - right.score;
+      })
+      .slice(0, 10)
+      .map((item, index) => ({
+        ...item,
+        rank: index + 1,
+        summary: item.summary || `XPIC: ${Object.entries(item.componentStatuses).map(([pol, status]) => `${pol}=${status}`).join(", ")}`,
+        best_explanation: item.best_explanation || null,
+      }));
+  }
+
   function renderLinkBudgetPlan(plan) {
     if (!linkBudgetPlanEl) {
       return;
@@ -606,6 +671,10 @@
             <span class="ko-plan-value">${escapeHtml(plan.planned_modulation || "-")}</span>
           </div>
           <div class="ko-plan-field">
+            <span class="ko-plan-label">Najniższa modulacja</span>
+            <span class="ko-plan-value">${escapeHtml(plan.lowest_modulation || "-")}</span>
+          </div>
+          <div class="ko-plan-field">
             <span class="ko-plan-label">KO moc nadajnika [dBm]</span>
             <span class="ko-plan-value">${plan.ko_tx_power_dbm != null ? escapeHtml(Number(plan.ko_tx_power_dbm).toFixed(0)) : "-"}</span>
           </div>
@@ -647,6 +716,52 @@
     `;
   }
 
+  function groupConflictRowsForXpic(conflicts) {
+    const groups = new Map();
+    conflicts.forEach((item) => {
+      const key = `${item.channel_ab || ""}__${item.channel_ba || ""}`;
+      const existing = groups.get(key) || {
+        link_id: `${item.channel_ab || "-"} / ${item.channel_ba || "-"} HV`,
+        status: item.details?.status || item.risk_level || "UNKNOWN",
+        channel_ab: item.channel_ab || "-",
+        channel_ba: item.channel_ba || "-",
+        polarization: "HV",
+        score: Number(item.score || 0),
+        decision_explanation: item.decision_explanation || "-",
+        details: { top_conflicts: [], component_statuses: {} },
+      };
+      const currentStatus = item.details?.status || item.risk_level || "UNKNOWN";
+      existing.status = statusRankValue(currentStatus) > statusRankValue(existing.status) ? currentStatus : existing.status;
+      existing.score = Math.max(existing.score, Number(item.score || 0));
+      if (item.polarization) {
+        existing.details.component_statuses[item.polarization] = currentStatus;
+      }
+      const topConflicts = item.details?.top_conflicts || [];
+      existing.details.top_conflicts.push(...topConflicts);
+      if ((item.decision_explanation || "").length > (existing.decision_explanation || "").length) {
+        existing.decision_explanation = item.decision_explanation || existing.decision_explanation;
+      }
+      groups.set(key, existing);
+    });
+
+    return Array.from(groups.values())
+      .sort((left, right) => {
+        const statusDelta = statusRankValue(left.status) - statusRankValue(right.status);
+        if (statusDelta !== 0) {
+          return statusDelta;
+        }
+        return left.score - right.score;
+      })
+      .slice(0, 30)
+      .map((item) => ({
+        ...item,
+        details: {
+          ...item.details,
+          top_conflicts: item.details.top_conflicts.slice(0, 6),
+        },
+      }));
+  }
+
   function renderConflicts(conflicts) {
     if (!conflicts || conflicts.length === 0) {
       conflictsTableBodyEl.innerHTML = `
@@ -657,9 +772,15 @@
       return;
     }
 
-    conflictsTableBodyEl.innerHTML = conflicts.slice(0, 30).map((item) => {
+    const isXpic = String(currentAnalysisRequest?.requested_polarization || "").toUpperCase() === "X";
+    const rows = isXpic ? groupConflictRowsForXpic(conflicts) : conflicts.slice(0, 30);
+
+    conflictsTableBodyEl.innerHTML = rows.map((item) => {
       const status = item.details?.status || item.risk_level || "UNKNOWN";
       const topConflicts = item.details?.top_conflicts || [];
+      const componentStatusText = item.details?.component_statuses
+        ? Object.entries(item.details.component_statuses).map(([pol, value]) => `${pol}=${value}`).join(", ")
+        : null;
       const topConflictText = topConflicts.length
         ? topConflicts.map((conflict) =>
             `${conflict.link_id} | ${conflict.operator_name || "-"} | ${conflict.risk_level}`
@@ -674,7 +795,7 @@
           <td>${escapeHtml(item.channel_ba || "-")}</td>
           <td>${escapeHtml(item.polarization || "-")}</td>
           <td>${escapeHtml(Number(item.score).toFixed(1))}</td>
-          <td>${escapeHtml(item.decision_explanation || "-")}</td>
+          <td>${escapeHtml(componentStatusText ? `${componentStatusText}; ${item.decision_explanation || "-"}` : (item.decision_explanation || "-"))}</td>
           <td>${escapeHtml(topConflictText)}</td>
         </tr>
       `;
