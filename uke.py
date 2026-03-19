@@ -1355,6 +1355,8 @@ def _internal_catalog_query() -> str:
         st_o.u_ytkownik_id AS rx_user_id,
         st_n.operator AS tx_operator,
         st_o.operator AS rx_operator,
+        os_n.nazwa1 AS tx_user_name,
+        os_o.nazwa1 AS rx_user_name,
         pa_n.zysk_energetyczny AS tx_antenna_gain_dbi,
         a_n.typ_anteny AS tx_antenna_type,
         prod_n.nazwa_producenta AS tx_antenna_vendor,
@@ -1392,6 +1394,8 @@ def _internal_catalog_query() -> str:
       ON za_n.zastosowana_antena_id = p.antena_stacji_n_id
     LEFT JOIN lr_konsultacja_349__stacja st_n
       ON st_n.stacja_id = za_n.stacja_id
+    LEFT JOIN lr_konsultacja_349__osoba os_n
+      ON os_n.wnioskodawca_id = st_n.u_ytkownik_id
     LEFT JOIN lr_konsultacja_349__konstrukcja k_n
       ON k_n.konstrukcja_id = st_n.konstrukcja_id
     LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_n
@@ -1406,6 +1410,8 @@ def _internal_catalog_query() -> str:
       ON za_o.zastosowana_antena_id = p.antena_stacji_o_id
     LEFT JOIN lr_konsultacja_349__stacja st_o
       ON st_o.stacja_id = za_o.stacja_id
+    LEFT JOIN lr_konsultacja_349__osoba os_o
+      ON os_o.wnioskodawca_id = st_o.u_ytkownik_id
     LEFT JOIN lr_konsultacja_349__konstrukcja k_o
       ON k_o.konstrukcja_id = st_o.konstrukcja_id
     LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_o
@@ -1460,7 +1466,12 @@ def _row_to_internal_record(row: sqlite3.Row, source_filename: str, source_sheet
         antenna_gain_dbi=row["rx_antenna_gain_dbi"],
     )
 
-    operator_name = clean_text(row["tx_operator"]) or clean_text(row["rx_operator"])
+    operator_name = (
+        clean_text(row["tx_operator"])
+        or clean_text(row["tx_user_name"])
+        or clean_text(row["rx_operator"])
+        or clean_text(row["rx_user_name"])
+    )
     if operator_name is None and row["tx_user_id"] is not None and row["tx_user_id"] == row["rx_user_id"]:
         operator_name = f"UKE_USER_{row['tx_user_id']}"
 

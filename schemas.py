@@ -171,11 +171,20 @@ class ChannelInterferenceBar(BaseModel):
     label: str
     channel_ab: str
     channel_ba: str
-    polarization: Literal["H", "V"]
+    polarization: str
     status: str
     gate_status: Optional[str] = None
     requested: bool = False
     recommended: bool = False
+    xpic_grouped: bool = False
+    component_statuses: dict[str, str] = Field(default_factory=dict)
+    metric_kind: str = "TDsum"
+    metric_db: float = 0.0
+    metric_ab_db: float = 0.0
+    metric_ba_db: float = 0.0
+    worst_margin_db: Optional[float] = None
+    worst_margin_ab_db: Optional[float] = None
+    worst_margin_ba_db: Optional[float] = None
     td_max_db: float = 0.0
     td_max_ab_db: float = 0.0
     td_max_ba_db: float = 0.0
@@ -183,6 +192,8 @@ class ChannelInterferenceBar(BaseModel):
     pairwise_results_count: int = 0
     red_pair_count: int = 0
     blocking_pair_count: int = 0
+    catalog_pattern_pair_count: int = 0
+    fallback_pattern_pair_count: int = 0
 
 
 class ChannelInterferenceChart(BaseModel):

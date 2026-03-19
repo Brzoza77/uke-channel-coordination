@@ -91,6 +91,7 @@
       [sourceKind === "sqlite" ? "Baza UKE" : "Plik źródłowy", source.filename],
       ["Ścieżka", source.full_path],
       [sourceKind === "sqlite" ? "Tabela główna" : "Arkusz", source.sheet_name],
+      ["Katalog anten", source?.antenna_catalog_present ? "obecny" : "brak"],
       ["Rekordy / przęsła", source.rows_count],
       ["Łącza duplex", source.duplex_links],
       ["Sparowane rekordy", source.paired_records_count],
@@ -471,22 +472,26 @@
       channelChartStateEl.classList.add("muted");
       channelChartStateEl.textContent = "Brak danych do wykresu.";
       channelChartEl.className = "channel-chart-empty";
-      channelChartEl.textContent = "Uruchom analizę, aby zobaczyć słupki degradacji TDmax dla każdego kanału.";
+      channelChartEl.textContent = "Uruchom analizę, aby zobaczyć słupki skumulowanej degradacji TDsum dla każdego kanału.";
       return;
     }
 
     const maxTd = Math.max(Number(chartSection.max_td_db || 0), Number(chartSection.threshold_db || 1), 1);
     const thresholdDb = Number(chartSection.threshold_db || 1);
     const thresholdPct = Math.max(0, Math.min(100, (thresholdDb / maxTd) * 100));
-    const overThresholdCount = chartSection.items.filter((item) => Number(item.td_max_db || 0) > thresholdDb).length;
+    const overThresholdCount = chartSection.items.filter((item) => Number(item.metric_db || 0) > thresholdDb).length;
+    const xpicGrouped = chartSection.items.some((item) => item.xpic_grouped);
 
     channelChartStateEl.classList.remove("muted", "success", "error");
     channelChartStateEl.classList.add(overThresholdCount > 0 ? "error" : "success");
-    channelChartStateEl.textContent = `Kanały w paśmie: ${chartSection.items.length}. Kanały z degradacją TDmax > ${thresholdDb.toFixed(1)} dB: ${overThresholdCount}.`;
+    channelChartStateEl.textContent = `Kanały w paśmie: ${chartSection.items.length}. Kanały z degradacją skumulowaną TDsum > ${thresholdDb.toFixed(1)} dB: ${overThresholdCount}.`;
 
     const barsHtml = chartSection.items.map((item) => {
-      const tdMax = Number(item.td_max_db || 0);
-      const barPct = Math.max(0, Math.min(100, (tdMax / maxTd) * 100));
+      const metricDb = Number(item.metric_db || 0);
+      const barPct = Math.max(0, Math.min(100, (metricDb / maxTd) * 100));
+      const componentStatuses = item.component_statuses && Object.keys(item.component_statuses).length
+        ? Object.entries(item.component_statuses).map(([key, value]) => `${key}: ${value}`).join(", ")
+        : null;
       const classes = [
         "channel-bar",
         `is-${String(item.status || "unknown").toLowerCase()}`,
@@ -497,19 +502,27 @@
         `${item.label}`,
         `Status: ${item.status}`,
         item.gate_status ? `Access gate: ${item.gate_status}` : null,
-        `TDmax: ${tdMax.toFixed(2)} dB`,
-        `TD A→B: ${Number(item.td_max_ab_db || 0).toFixed(2)} dB`,
-        `TD B→A: ${Number(item.td_max_ba_db || 0).toFixed(2)} dB`,
+        componentStatuses ? `Składowe XPIC: ${componentStatuses}` : null,
+        `TDsum: ${metricDb.toFixed(2)} dB`,
+        `TDsum A→B: ${Number(item.metric_ab_db || 0).toFixed(2)} dB`,
+        `TDsum B→A: ${Number(item.metric_ba_db || 0).toFixed(2)} dB`,
+        `TDmax A→B: ${Number(item.td_max_ab_db || 0).toFixed(2)} dB`,
+        `TDmax B→A: ${Number(item.td_max_ba_db || 0).toFixed(2)} dB`,
+        item.worst_margin_db != null ? `Najgorszy margines duplex: ${Number(item.worst_margin_db).toFixed(2)} dB` : null,
+        item.worst_margin_ab_db != null ? `Margines A→B: ${Number(item.worst_margin_ab_db).toFixed(2)} dB` : null,
+        item.worst_margin_ba_db != null ? `Margines B→A: ${Number(item.worst_margin_ba_db).toFixed(2)} dB` : null,
         `Wyniki > 1 dB: ${item.over_threshold_pair_count}/${item.pairwise_results_count}`,
         `RED: ${item.red_pair_count}`,
         `Blocking: ${item.blocking_pair_count}`,
+        `Charakterystyki katalogowe: ${item.catalog_pattern_pair_count}`,
+        `Fallback charakterystyk: ${item.fallback_pattern_pair_count}`,
         item.requested ? "Kanał żądany" : null,
         item.recommended ? "Kanał rekomendowany przez aplikację" : null,
       ].filter(Boolean).join("\n");
 
       return `
         <div class="${classes}" title="${escapeHtml(tooltip)}">
-          <div class="channel-bar-value">${escapeHtml(tdMax.toFixed(1))}</div>
+          <div class="channel-bar-value">${escapeHtml(metricDb.toFixed(1))}</div>
           <div class="channel-bar-track">
             <div class="channel-bar-fill" style="height:${barPct.toFixed(2)}%"></div>
           </div>
@@ -521,8 +534,9 @@
     channelChartEl.className = "channel-chart";
     channelChartEl.innerHTML = `
       <div class="channel-chart-header">
-        <div class="channel-chart-meta">Metryka: najgorsza degradacja TDmax dla kanału</div>
+        <div class="channel-chart-meta">Metryka: skumulowana degradacja TDsum w gorszym kierunku</div>
         <div class="channel-chart-meta">Skala do ${escapeHtml(maxTd.toFixed(1))} dB</div>
+        <div class="channel-chart-meta">${xpicGrouped ? "XPIC: H/V zgrupowane w jeden słupek na orientację kanału" : "Status zależy od marginesu EMC, TDsum i konfliktów RED"}</div>
       </div>
       <div class="channel-chart-plot">
         <div class="channel-chart-scroll">

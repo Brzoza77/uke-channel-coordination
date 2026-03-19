@@ -7,6 +7,7 @@ import json
 import re
 import threading
 import time
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -338,7 +339,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     max_tx_power_dbm = max([WORKING_MAX_TX_FALLBACK_DBM, *configured_tx_values])
 
     configured_modulation_key = _normalize_modulation_label(parsed_request.modulation)
-    modulation_key = WORKING_PLANNED_MODULATION_FALLBACK
+    modulation_key = configured_modulation_key or WORKING_PLANNED_MODULATION_FALLBACK
     lowest_modulation_key = WORKING_LOWEST_MODULATION
 
     planned_sensitivity_dbm = ATOLL_SENSITIVITY_DBM[modulation_key]
@@ -447,17 +448,21 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     assumptions = [
         "KO RX target fixed at -36 dBm",
         "ATPC expected RX window fixed at -35 to -40 dBm",
-        f"KO planned modulation fixed to {WORKING_PLANNED_MODULATION_FALLBACK}",
         "Availability metrics assume ATPC can ramp up to Max TX before declaring outage",
         "Global outage counted at max TX and lowest modulation 4QAM/QPSK",
         "Sensitivity table calibrated from supplied Atoll report (BER 1e-06)",
         "Clear-sky atmospheric loss approximated from Atoll E-band reference (FSPL + gas/water vapour specific loss)",
         "If WLR antenna gain is missing or implausibly low in E-band, fallback gain 50.5 dBi is used",
     ]
-    if configured_modulation_key and configured_modulation_key != modulation_key:
+    if configured_modulation_key:
+        assumptions.append(f"KO planned modulation taken from WLR: {configured_modulation_key}")
+    else:
         assumptions.append(
-            f"WLR modulation {configured_modulation_key} ignored for KO; fixed planned modulation {modulation_key} used instead"
+            f"WLR did not provide a usable planned modulation; fallback {WORKING_PLANNED_MODULATION_FALLBACK} used for KO"
         )
+    assumptions.append(
+        f"Lowest modulation for outage uses fallback {lowest_modulation_key} until explicit field is available in WLR"
+    )
     if configured_tx_dbm is not None:
         assumptions.append(
             f"Configured WLR TX found: {configured_tx_dbm:.1f} dBm; planning cap uses {max_tx_power_dbm:.1f} dBm "
@@ -465,6 +470,11 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         )
     else:
         assumptions.append(f"No explicit WLR max TX found, fallback cap {WORKING_MAX_TX_FALLBACK_DBM:.1f} dBm used")
+    if getattr(record, "catalog_pattern_pair_count", 0) or getattr(record, "fallback_pattern_pair_count", 0):
+        assumptions.append(
+            f"Charakterystyki anten dla najlepszego kanalu: katalog={getattr(record, 'catalog_pattern_pair_count', 0)}, "
+            f"fallback={getattr(record, 'fallback_pattern_pair_count', 0)}"
+        )
 
     warnings: list[str] = []
     worst_min_rsl_dbm = min(rsl_ab_at_min_tx_dbm, rsl_ba_at_min_tx_dbm)
@@ -1254,9 +1264,92 @@ def _channel_sort_key(channel_value: str) -> tuple[int, int, str]:
     return (number, prime_rank, suffix)
 
 
+def _status_worst(*values: str | None) -> str | None:
+    rank = {"ACCEPTED": 0, "CONDITIONAL": 1, "REJECTED": 2}
+    candidates = [value for value in values if value]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda value: rank.get(value, 99))
+
+
 def _build_channel_chart(candidate_frequency_records, parsed_request, recommended_key: tuple[str, str, str] | None = None) -> ChannelInterferenceChart:
     items: list[ChannelInterferenceBar] = []
     threshold_db = 1.0
+    is_xpic_request = str(getattr(parsed_request, "requested_polarization", "") or "").upper() == "X"
+
+    if is_xpic_request:
+        grouped_records: dict[tuple[str, str], list[Any]] = {}
+        for record in candidate_frequency_records:
+            grouped_records.setdefault((record.channel_ab, record.channel_ba), []).append(record)
+
+        for channel_key in sorted(
+            grouped_records,
+            key=lambda item: (
+                _channel_sort_key(item[0]),
+                _channel_sort_key(item[1]),
+            ),
+        ):
+            records = grouped_records[channel_key]
+            metric_ab_db = max((record.total_td_ab_db for record in records), default=0.0)
+            metric_ba_db = max((record.total_td_ba_db for record in records), default=0.0)
+            metric_db = max(metric_ab_db, metric_ba_db)
+            td_max_ab_db = max((max((result.degradation_db or 0.0) for result in record.pairwise_results if result.direction == "A->B") for record in records), default=0.0)
+            td_max_ba_db = max((max((result.degradation_db or 0.0) for result in record.pairwise_results if result.direction == "B->A") for record in records), default=0.0)
+            td_max_db = max(td_max_ab_db, td_max_ba_db)
+            requested = channel_key == (parsed_request.channel_ab, parsed_request.channel_ba)
+            recommended = recommended_key is not None and channel_key == (recommended_key[0], recommended_key[1])
+            component_statuses = {record.polarization: record.status for record in records}
+            items.append(
+                ChannelInterferenceBar(
+                    label=f"{channel_key[0]}/{channel_key[1]} HV",
+                    channel_ab=channel_key[0],
+                    channel_ba=channel_key[1],
+                    polarization="HV",
+                    status=_status_worst(*(record.status for record in records)) or "UNKNOWN",
+                    gate_status=_status_worst(*(record.access_fkand_gate_status for record in records)),
+                    requested=requested,
+                    recommended=recommended,
+                    xpic_grouped=True,
+                    component_statuses={key: value for key, value in component_statuses.items() if value},
+                    metric_kind="TDsum",
+                    metric_db=metric_db,
+                    metric_ab_db=metric_ab_db,
+                    metric_ba_db=metric_ba_db,
+                    worst_margin_db=min(
+                        (record.worst_duplex_margin_db for record in records if record.worst_duplex_margin_db is not None),
+                        default=None,
+                    ),
+                    worst_margin_ab_db=min(
+                        (record.worst_margin_ab_db for record in records if record.worst_margin_ab_db is not None),
+                        default=None,
+                    ),
+                    worst_margin_ba_db=min(
+                        (record.worst_margin_ba_db for record in records if record.worst_margin_ba_db is not None),
+                        default=None,
+                    ),
+                    td_max_db=td_max_db,
+                    td_max_ab_db=td_max_ab_db,
+                    td_max_ba_db=td_max_ba_db,
+                    over_threshold_pair_count=sum(
+                        1
+                        for record in records
+                        for result in record.pairwise_results
+                        if result.degradation_db is not None and result.degradation_db > threshold_db
+                    ),
+                    pairwise_results_count=sum(len(record.pairwise_results) for record in records),
+                    red_pair_count=sum(record.pairwise_red_count for record in records),
+                    blocking_pair_count=sum(record.pairwise_blocking_count for record in records),
+                    catalog_pattern_pair_count=sum(record.catalog_pattern_pair_count for record in records),
+                    fallback_pattern_pair_count=sum(record.fallback_pattern_pair_count for record in records),
+                )
+            )
+
+        max_td_db = max((item.metric_db for item in items), default=0.0)
+        return ChannelInterferenceChart(
+            threshold_db=threshold_db,
+            max_td_db=max_td_db,
+            items=items,
+        )
 
     for record in sorted(
         candidate_frequency_records,
@@ -1293,6 +1386,13 @@ def _build_channel_chart(candidate_frequency_records, parsed_request, recommende
                 polarization=record.polarization,
                 status=record.status,
                 gate_status=record.access_fkand_gate_status,
+                metric_kind="TDsum",
+                metric_db=record.total_td_db,
+                metric_ab_db=record.total_td_ab_db,
+                metric_ba_db=record.total_td_ba_db,
+                worst_margin_db=record.worst_duplex_margin_db,
+                worst_margin_ab_db=record.worst_margin_ab_db,
+                worst_margin_ba_db=record.worst_margin_ba_db,
                 requested=(
                     record.channel_ab == parsed_request.channel_ab
                     and record.channel_ba == parsed_request.channel_ba
@@ -1309,10 +1409,12 @@ def _build_channel_chart(candidate_frequency_records, parsed_request, recommende
                 pairwise_results_count=len(record.pairwise_results),
                 red_pair_count=record.pairwise_red_count,
                 blocking_pair_count=record.pairwise_blocking_count,
+                catalog_pattern_pair_count=record.catalog_pattern_pair_count,
+                fallback_pattern_pair_count=record.fallback_pattern_pair_count,
             )
         )
 
-    max_td_db = max((item.td_max_db for item in items), default=0.0)
+    max_td_db = max((item.metric_db for item in items), default=0.0)
     return ChannelInterferenceChart(
         threshold_db=threshold_db,
         max_td_db=max_td_db,

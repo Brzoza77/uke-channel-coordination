@@ -145,6 +145,9 @@ class CandidateFrequencyRecord:
     worst_margin_ab_db: Optional[float]
     worst_margin_ba_db: Optional[float]
     worst_duplex_margin_db: Optional[float]
+    total_td_ab_db: float = 0.0
+    total_td_ba_db: float = 0.0
+    total_td_db: float = 0.0
     uke_like_problem_flags: list[str] = field(default_factory=list)
     inferred_uke_like_status: str = "REJECTED"
     pairwise_red_count: int = 0
@@ -184,6 +187,8 @@ class CandidateFrequencyRecord:
     access_fkand_gate_status: str = "REJECTED"
     access_fkand_gate_rank: int = 2
     access_fkand_gate_notes: list[str] = field(default_factory=list)
+    catalog_pattern_pair_count: int = 0
+    fallback_pattern_pair_count: int = 0
     pairwise_results: list[PairwiseEmcResult] = field(default_factory=list)
 
 
@@ -300,6 +305,27 @@ def build_pairwise_emc_results(assessment: ChannelAssessment) -> list[PairwiseEm
             )
         )
     return results
+
+
+def _conflict_uses_catalog_pattern(conflict: ConflictAssessment) -> bool:
+    for key in (
+        "ab_incoming_direct",
+        "ab_incoming_cross",
+        "ab_outgoing_direct",
+        "ab_outgoing_cross",
+        "ba_incoming_direct",
+        "ba_incoming_cross",
+        "ba_outgoing_direct",
+        "ba_outgoing_cross",
+        "ab_incoming_case",
+        "ab_outgoing_case",
+        "ba_incoming_case",
+        "ba_outgoing_case",
+    ):
+        value = conflict.details.get(key)
+        if isinstance(value, dict) and value.get("used_catalog_pattern"):
+            return True
+    return False
 
 
 def _pairwise_result_is_problem(result: PairwiseEmcResult) -> bool:
@@ -677,6 +703,11 @@ def build_candidate_frequency_record(
     blocking_count = sum(1 for result in pairwise_results if result.is_blocking)
     cochannel_count = sum(1 for result in pairwise_results if result.conflict_type == "cochannel")
     red_count = sum(1 for result in pairwise_results if result.risk_level == "red")
+    total_td_ab_db = _directional_total_degradation(assessment.conflicts, "ab")
+    total_td_ba_db = _directional_total_degradation(assessment.conflicts, "ba")
+    total_td_db = max(total_td_ab_db, total_td_ba_db)
+    catalog_pattern_pair_count = sum(1 for conflict in assessment.conflicts if _conflict_uses_catalog_pattern(conflict))
+    fallback_pattern_pair_count = max(0, len(assessment.conflicts) - catalog_pattern_pair_count)
     if blocking_count:
         uke_like_problem_flags.append("blocking_pairs_present")
     if cochannel_count:
@@ -716,6 +747,9 @@ def build_candidate_frequency_record(
         worst_margin_ab_db=worst_margin_ab_db,
         worst_margin_ba_db=worst_margin_ba_db,
         worst_duplex_margin_db=worst_duplex_margin_db,
+        total_td_ab_db=total_td_ab_db,
+        total_td_ba_db=total_td_ba_db,
+        total_td_db=total_td_db,
         pairwise_red_count=red_count,
         pairwise_cochannel_count=cochannel_count,
         pairwise_blocking_count=blocking_count,
@@ -753,6 +787,8 @@ def build_candidate_frequency_record(
         access_fkand_gate_status=access_fkand_gate_state["status"],
         access_fkand_gate_rank=access_fkand_gate_state["rank"],
         access_fkand_gate_notes=access_fkand_gate_state["notes"],
+        catalog_pattern_pair_count=catalog_pattern_pair_count,
+        fallback_pattern_pair_count=fallback_pattern_pair_count,
         pairwise_results=pairwise_results,
     )
 
@@ -1808,6 +1844,7 @@ def _directional_interference_case(
         "rx_off_axis_deg": endpoint_metrics["rx_off_axis_deg"],
         "tx_penalty_db": endpoint_metrics["tx_penalty_db"],
         "rx_penalty_db": endpoint_metrics["rx_penalty_db"],
+        "used_catalog_pattern": endpoint_metrics["used_catalog_pattern"],
         "md_db": md_db,
         "nfd_db": nfd_db,
         "interference_dbm": interference_dbm,
@@ -2813,7 +2850,7 @@ def assess_channel_candidate(
     if status_ab == "ACCEPTED" and status_ba == "ACCEPTED":
         status = "ACCEPTED"
         rejection_reasons: list[str] = []
-    elif status_ab == "REJECTED" and status_ba == "REJECTED":
+    elif status_ab == "REJECTED" or status_ba == "REJECTED":
         status = "REJECTED"
         rejection_reasons = reasons_ab[:2] + reasons_ba[:2]
     else:
