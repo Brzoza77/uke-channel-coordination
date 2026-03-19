@@ -19,7 +19,7 @@
           <a class="header-link" href="/analysis-runs" target="_blank" rel="noopener">Log analiz</a>
           <a class="header-link" href="/workflow" target="_blank" rel="noopener">Workflow UKE</a>
         </nav>
-        <div class="status-pill" id="healthStatus">API: nieznany</div>
+        <div class="status-pill" id="healthStatus">API: nieznane</div>
       </div>
     </header>
 
@@ -93,10 +93,10 @@
                 <th>A→B</th>
                 <th>B→A</th>
                 <th>Pol.</th>
-                <th>Score</th>
+                <th>Wynik</th>
                 <th>Status</th>
                 <th>Red</th>
-                <th>Links</th>
+                <th>Łącza</th>
                 <th>Opis</th>
               </tr>
             </thead>
@@ -114,9 +114,9 @@
           <h2 id="channelChartSectionTitle">Zakłócenia w badanym paśmie</h2>
         </div>
         <div class="chart-legend" aria-label="Legenda wykresu">
-          <span class="chart-legend-item"><span class="chart-legend-swatch is-accepted"></span>ACCEPTED</span>
-          <span class="chart-legend-item"><span class="chart-legend-swatch is-conditional"></span>CONDITIONAL</span>
-          <span class="chart-legend-item"><span class="chart-legend-swatch is-rejected"></span>REJECTED</span>
+          <span class="chart-legend-item"><span class="chart-legend-swatch is-accepted"></span>Dopuszczony</span>
+          <span class="chart-legend-item"><span class="chart-legend-swatch is-conditional"></span>Warunkowy</span>
+          <span class="chart-legend-item"><span class="chart-legend-swatch is-rejected"></span>Odrzucony</span>
           <span class="chart-legend-item"><span class="chart-legend-swatch is-requested"></span>Kanał żądany</span>
           <span class="chart-legend-item"><span class="chart-legend-swatch is-recommended"></span>Kanał rekomendowany</span>
           <span class="chart-legend-item"><span class="chart-legend-line"></span>Próg degradacji 1 dB</span>
@@ -140,7 +140,7 @@
 
       <section class="panel panel-wide" aria-labelledby="conflictsSectionTitle">
         <div class="panel-header">
-          <h2 id="conflictsSectionTitle">Powody CONDITIONAL / REJECTED</h2>
+          <h2 id="conflictsSectionTitle">Powody kanałów warunkowych i odrzuconych</h2>
         </div>
         <div class="table-wrap">
           <table id="conflictsTable">
@@ -151,7 +151,7 @@
                 <th>A→B</th>
                 <th>B→A</th>
                 <th>Pol.</th>
-                <th>Score</th>
+                <th>Wynik</th>
                 <th>Powód</th>
                 <th>Top konflikty</th>
               </tr>

@@ -11,14 +11,14 @@
     <header class="page-header">
       <div>
         <h1>Workflow bazy UKE</h1>
-        <p class="subtitle">Lokalny podglad grafu relacji zbudowanego z `uke_workflow.sqlite`. Dziala po zwyklym `./refresh_uke_sqlite.sh`, bez dodatkowego Gita i bez osobnych narzedzi.</p>
+        <p class="subtitle">Lokalny podgląd grafu relacji zbudowanego z `uke_workflow.sqlite`. Działa po zwykłym `./refresh_uke_sqlite.sh`, bez dodatkowego Gita i bez osobnych narzędzi.</p>
       </div>
       <div class="header-actions">
         <nav class="header-links" aria-label="Nawigacja">
-          <a class="header-link" href="/">Dashboard</a>
+          <a class="header-link" href="/">Panel główny</a>
           <a class="header-link" href="/analysis-runs" target="_blank" rel="noopener">Log analiz</a>
         </nav>
-        <div class="status-pill" id="workflowStatus">Workflow: ladowanie</div>
+        <div class="status-pill" id="workflowStatus">Workflow: ładowanie</div>
       </div>
     </header>
 
@@ -26,11 +26,11 @@
       <section class="panel panel-wide">
         <div class="toolbar-row">
           <div class="toggle-row">
-            <button type="button" id="refreshWorkflowBtn">Odswiez</button>
-            <label><input type="checkbox" id="showLowConfidenceEdges"> Pokaz niskie confidence</label>
+            <button type="button" id="refreshWorkflowBtn">Odśwież</button>
+            <label><input type="checkbox" id="showLowConfidenceEdges"> Pokaż relacje o niskiej pewności</label>
           </div>
           <div class="toggle-row">
-            <a class="header-link" id="workflowDotLink" href="/workflow-graph.dot" target="_blank" rel="noopener">Raw DOT</a>
+            <a class="header-link" id="workflowDotLink" href="/workflow-graph.dot" target="_blank" rel="noopener">Surowy DOT</a>
             <div id="workflowMeta" class="pill-note">Brak danych</div>
           </div>
         </div>
@@ -43,7 +43,7 @@
         <div id="workflowSummary" class="stat-grid">
           <div class="stat-card">
             <span class="stat-card-label">Status</span>
-            <span class="stat-card-value">Ladowanie...</span>
+            <span class="stat-card-value">Ładowanie...</span>
           </div>
         </div>
       </section>
@@ -52,15 +52,15 @@
         <div class="panel-header">
           <h2>Graf relacji</h2>
         </div>
-        <div id="workflowState" class="message-box muted">Ladowanie grafu...</div>
+        <div id="workflowState" class="message-box muted">Ładowanie grafu...</div>
         <div id="workflowViewport" class="workflow-viewport">
-          <div class="muted-note">Graf pojawi sie tutaj po zaladowaniu danych.</div>
+          <div class="muted-note">Graf pojawi się tutaj po załadowaniu danych.</div>
         </div>
       </section>
 
       <section class="panel panel-wide">
         <div class="panel-header">
-          <h2>Najwazniejsze relacje</h2>
+          <h2>Najważniejsze relacje</h2>
         </div>
         <div class="table-wrap">
           <table>

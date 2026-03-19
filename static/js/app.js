@@ -28,6 +28,26 @@
   const RECENT_WLR_KEY = "uke_recent_wlr_v1";
   const MAX_RECENT_ITEMS = 12;
 
+  function translateStatus(status) {
+    const mapping = {
+      ACCEPTED: "Dopuszczony",
+      CONDITIONAL: "Warunkowy",
+      REJECTED: "Odrzucony",
+      UNKNOWN: "Nieznany",
+      NO_ACCEPTED: "Brak kanału dopuszczonego",
+    };
+    return mapping[String(status || "").toUpperCase()] || String(status || "-");
+  }
+
+  function translateRiskLevel(risk) {
+    const mapping = {
+      green: "zielony",
+      amber: "amber",
+      red: "czerwony",
+    };
+    return mapping[String(risk || "").toLowerCase()] || String(risk || "-");
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -77,7 +97,7 @@
   }
 
   function setHealthStatusError(error) {
-    healthStatusEl.textContent = `API error: ${error.message}`;
+    healthStatusEl.textContent = `Błąd API: ${error.message}`;
     healthStatusEl.classList.remove("is-ok");
     healthStatusEl.classList.add("is-error");
   }
@@ -121,7 +141,7 @@
     }
 
     const items = [
-      ["Upload ID", summary.upload_id || "-"],
+      ["Identyfikator uploadu", summary.upload_id || "-"],
       ["Link", summary.link_name || "-"],
       ["Plan", summary.plan_symbol || "-"],
       ["Kanał", summary.requested_channel || "-"],
@@ -343,7 +363,7 @@
       same_plan_as_request: "Ten sam plan",
       risk_level: "Ryzyko",
       conflict_type: "Typ konfliktu",
-      score: "Score",
+      score: "Wynik",
       distance_km: "Odległość [km]",
       effective_freq_delta_mhz: "Delta f [MHz]",
       estimated_ci_victim_db: "CI victim [dB]",
@@ -456,7 +476,7 @@
           <td>${escapeHtml(item.channel_ba)}</td>
           <td>${escapeHtml(item.polarization)}</td>
           <td>${escapeHtml(Number(item.score).toFixed(1))}</td>
-          <td><strong>${escapeHtml(status)}</strong></td>
+          <td><strong>${escapeHtml(translateStatus(status))}</strong></td>
           <td>${escapeHtml(item.red_conflicts)}</td>
           <td>${escapeHtml(item.candidate_links_count)}</td>
           <td>${escapeHtml(reasonText)}</td>
@@ -503,8 +523,8 @@
       ].filter(Boolean).join(" ");
       const tooltip = [
         `${item.label}`,
-        `Status: ${item.status}`,
-        item.gate_status ? `Access gate: ${item.gate_status}` : null,
+        `Status: ${translateStatus(item.status)}`,
+        item.gate_status ? `Bramka Access: ${translateStatus(item.gate_status)}` : null,
         componentStatuses ? `Składowe XPIC: ${componentStatuses}` : null,
         `TDsum: ${metricDb.toFixed(2)} dB`,
         `TDsum A→B: ${Number(item.metric_ab_db || 0).toFixed(2)} dB`,
@@ -515,10 +535,10 @@
         item.worst_margin_ab_db != null ? `Margines A→B: ${Number(item.worst_margin_ab_db).toFixed(2)} dB` : null,
         item.worst_margin_ba_db != null ? `Margines B→A: ${Number(item.worst_margin_ba_db).toFixed(2)} dB` : null,
         `Wyniki > 1 dB: ${item.over_threshold_pair_count}/${item.pairwise_results_count}`,
-        `RED: ${item.red_pair_count}`,
-        `Blocking: ${item.blocking_pair_count}`,
+        `Czerwone konflikty: ${item.red_pair_count}`,
+        `Konflikty blokujące: ${item.blocking_pair_count}`,
         `Charakterystyki katalogowe: ${item.catalog_pattern_pair_count}`,
-        `Fallback charakterystyk: ${item.fallback_pattern_pair_count}`,
+        `Przypadki z fallbackiem charakterystyk: ${item.fallback_pattern_pair_count}`,
         item.requested ? "Kanał żądany" : null,
         item.recommended ? "Kanał rekomendowany przez aplikację" : null,
       ].filter(Boolean).join("\n");
@@ -613,7 +633,7 @@
       .map((item, index) => ({
         ...item,
         rank: index + 1,
-        summary: item.summary || `XPIC: ${Object.entries(item.componentStatuses).map(([pol, status]) => `${pol}=${status}`).join(", ")}`,
+        summary: item.summary || `XPIC: ${Object.entries(item.componentStatuses).map(([pol, status]) => `${pol}=${translateStatus(status)}`).join(", ")}`,
         best_explanation: item.best_explanation || null,
       }));
   }
@@ -641,7 +661,7 @@
       <div class="ko-plan-header">
         <div>
           <div class="ko-plan-title">Kanał globalnie najlepszy: ${escapeHtml(plan.channel_label || "-")}</div>
-          <div class="ko-plan-subtitle">Status silnika: ${escapeHtml(plan.status || "-")}${plan.gate_status ? ` | Access gate: ${escapeHtml(plan.gate_status)}` : ""}${plan.path_length_km != null ? ` | Długość trasy: ${escapeHtml(Number(plan.path_length_km).toFixed(2))} km` : ""}</div>
+          <div class="ko-plan-subtitle">Status silnika: ${escapeHtml(translateStatus(plan.status || "-"))}${plan.gate_status ? ` | Bramka Access: ${escapeHtml(translateStatus(plan.gate_status))}` : ""}${plan.path_length_km != null ? ` | Długość linku: ${escapeHtml(Number(plan.path_length_km).toFixed(2))} km` : ""}</div>
         </div>
       </div>
       <div class="ko-plan-grid">
@@ -783,14 +803,14 @@
         : null;
       const topConflictText = topConflicts.length
         ? topConflicts.map((conflict) =>
-            `${conflict.link_id} | ${conflict.operator_name || "-"} | ${conflict.risk_level}`
+            `${conflict.link_id} | ${conflict.operator_name || "-"} | ${translateRiskLevel(conflict.risk_level)}`
           ).join(" ; ")
         : "-";
 
       return `
         <tr>
           <td>${escapeHtml(item.link_id)}</td>
-          <td>${escapeHtml(status)}</td>
+          <td>${escapeHtml(translateStatus(status))}</td>
           <td>${escapeHtml(item.channel_ab || "-")}</td>
           <td>${escapeHtml(item.channel_ba || "-")}</td>
           <td>${escapeHtml(item.polarization || "-")}</td>
@@ -809,7 +829,7 @@
       setDebug("GET /api/health", payload);
     } catch (error) {
       setHealthStatusError(error);
-      setDebug("GET /api/health ERROR", error.message);
+      setDebug("GET /api/health BŁĄD", error.message);
     }
   }
 
@@ -832,7 +852,7 @@
           <span class="kv-value">${escapeHtml(error.message)}</span>
         </div>
       `;
-      setDebug("GET /api/source ERROR", error.message);
+      setDebug("GET /api/source BŁĄD", error.message);
     }
   }
 
@@ -876,7 +896,7 @@
       setUploadMessage(`Błąd uploadu: ${error.message}`, "error");
       setAnalyzeButtonState(false, "Analizuj WLR");
       setReportButtonState(false, "Pobierz PDF");
-      setDebug("POST /api/upload-wlr ERROR", error.message);
+      setDebug("POST /api/upload-wlr BŁĄD", error.message);
     } finally {
       uploadBtnEl.disabled = false;
     }
@@ -900,6 +920,11 @@
         operator_name: "Towerlink Poland Sp. z o.o."
       };
       const payload = await ApiClient.analyzeWlr(currentAnalysisRequest);
+      currentAnalysisRequest = {
+        ...currentAnalysisRequest,
+        requested_polarization: payload.request?.requested_polarization || null,
+        requested_channel: payload.request?.requested_channel || null,
+      };
 
       renderRequestSummary(payload.request || { upload_id: uploadId });
       renderRecommendations(payload.recommendations || [], payload.summary || null);
@@ -916,9 +941,9 @@
       });
 
       if (payload.summary?.has_accepted) {
-        setUploadMessage("Znaleziono co najmniej jeden kanał ACCEPTED.", "success");
+        setUploadMessage("Znaleziono co najmniej jeden kanał dopuszczony.", "success");
       } else {
-        setUploadMessage("Nie znaleziono kanału ACCEPTED. Sprawdź CONDITIONAL i REJECTED.", "error");
+        setUploadMessage("Nie znaleziono kanału dopuszczonego. Sprawdź kanały warunkowe i odrzucone.", "error");
       }
 
       setReportButtonState(true, "Pobierz PDF");
@@ -927,7 +952,7 @@
       currentAnalysisRequest = null;
       setReportButtonState(false, "Pobierz PDF");
       setUploadMessage(`Błąd analizy: ${error.message}`, "error");
-      setDebug("POST /api/analyze ERROR", error.message);
+      setDebug("POST /api/analyze BŁĄD", error.message);
       renderChannelChart(null);
       renderLinkBudgetPlan(null);
     } finally {
@@ -957,7 +982,7 @@
       setDebug("GET /api/report/{upload_id}.pdf", { url, upload_id: currentAnalysisRequest.upload_id });
     } catch (error) {
       setUploadMessage(`Błąd generowania PDF: ${error.message}`, "error");
-      setDebug("GET /api/report/{upload_id}.pdf ERROR", error.message);
+      setDebug("GET /api/report/{upload_id}.pdf BŁĄD", error.message);
     } finally {
       setReportButtonState(Boolean(currentAnalysisRequest), "Pobierz PDF");
     }
@@ -986,7 +1011,7 @@
       await loadHealth();
       await loadSource();
     } catch (error) {
-      setDebug("BOOTSTRAP ERROR", error.message || String(error));
+      setDebug("INICJALIZACJA BŁĄD", error.message || String(error));
       setUploadMessage(`Błąd inicjalizacji UI: ${error.message || error}`, "error");
     }
   }

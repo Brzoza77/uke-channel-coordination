@@ -16,6 +16,14 @@
       .replace(/'/g, "&#039;");
   }
 
+  function translateRunStatus(status) {
+    const mapping = {
+      ok: "OK",
+      error: "Błąd",
+    };
+    return mapping[String(status || "").toLowerCase()] || String(status || "-");
+  }
+
   function formatSeconds(durationMs) {
     return Number.isFinite(durationMs) ? (durationMs / 1000).toFixed(2) : "-";
   }
@@ -25,7 +33,7 @@
       summaryEl.innerHTML = `
         <div class="stat-card">
           <span class="stat-card-label">Status</span>
-          <span class="stat-card-value">Brak wpisow</span>
+          <span class="stat-card-value">Brak wpisów</span>
         </div>
       `;
       return;
@@ -39,8 +47,8 @@
     const cards = [
       ["Wpisy", items.length],
       ["OK", okCount],
-      ["Bledy", errorCount],
-      ["Sredni czas [s]", formatSeconds(avgDurationMs)],
+      ["Błędy", errorCount],
+      ["Średni czas [s]", formatSeconds(avgDurationMs)],
       ["Ostatni koniec", newest.finished_at || "-"],
       ["Ostatni link", newest.link_name || newest.upload_id || "-"]
     ];
@@ -55,7 +63,7 @@
 
   function renderTable(items) {
     if (!items.length) {
-      bodyEl.innerHTML = `<tr><td colspan="8" class="empty-cell">Brak wpisow.</td></tr>`;
+      bodyEl.innerHTML = `<tr><td colspan="8" class="empty-cell">Brak wpisów.</td></tr>`;
       return;
     }
 
@@ -74,7 +82,7 @@
         <tr>
           <td>${escapeHtml(item.finished_at || "-")}</td>
           <td>${escapeHtml(formatSeconds(Number(item.duration_ms || 0)))}</td>
-          <td><span class="status-badge ${statusClass}">${escapeHtml(item.status || "-")}</span></td>
+          <td><span class="status-badge ${statusClass}">${escapeHtml(translateRunStatus(item.status || "-"))}</span></td>
           <td>${escapeHtml(item.trigger || "-")}</td>
           <td>${escapeHtml(item.link_name || item.upload_id || "-")}</td>
           <td>${escapeHtml(requested)}</td>
@@ -98,12 +106,12 @@
       renderSummary(items);
       renderTable(items);
       metaEl.textContent = `${payload.log_path || "logs/wlr_analysis_runs.jsonl"} | wpisy: ${items.length}`;
-      setHealth(true, `Runs: ${items.length}`);
+      setHealth(true, `Analizy: ${items.length}`);
     } catch (error) {
       renderSummary([]);
       bodyEl.innerHTML = `<tr><td colspan="8" class="empty-cell">${escapeHtml(error.message)}</td></tr>`;
-      metaEl.textContent = "Nie udalo sie zaladowac logu analiz.";
-      setHealth(false, `Runs error: ${error.message}`);
+      metaEl.textContent = "Nie udało się załadować logu analiz.";
+      setHealth(false, `Błąd analiz: ${error.message}`);
     }
   }
 

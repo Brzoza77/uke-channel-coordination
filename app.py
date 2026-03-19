@@ -313,6 +313,17 @@ def _annual_outage_pct_from_margin(margin_db: float) -> float:
     return max(0.0001, min(99.0, outage_pct))
 
 
+def _translate_status_pl(status: str | None) -> str:
+    mapping = {
+        "ACCEPTED": "Dopuszczony",
+        "CONDITIONAL": "Warunkowy",
+        "REJECTED": "Odrzucony",
+        "NO_ACCEPTED": "Brak kanału dopuszczonego",
+        "PENDING": "Oczekujący",
+    }
+    return mapping.get(str(status or "").upper(), str(status or "-"))
+
+
 def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     if record is None:
         return None
@@ -447,35 +458,34 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     minutes_per_year = 365.0 * 24.0 * 60.0
 
     assumptions = [
-        "KO RX target fixed at -36 dBm",
-        "ATPC expected RX window fixed at -35 to -40 dBm",
-        "Availability metrics assume ATPC can ramp up to Max TX before declaring outage",
-        "Global outage counted at max TX and lowest modulation 4QAM/QPSK",
-        "Sensitivity table calibrated from supplied Atoll report (BER 1e-06)",
-        "Clear-sky atmospheric loss approximated from Atoll E-band reference (FSPL + gas/water vapour specific loss)",
-        "If WLR antenna gain is missing or implausibly low in E-band, fallback gain 50.5 dBi is used",
+        "Cel KO RX ustawiono na -36 dBm",
+        "Docelowe okno ATPC dla RX ustawiono na -35 do -40 dBm",
+        "Metryki dostępności zakładają, że ATPC może dojść do maksymalnej mocy TX przed uznaniem linku za niedostępny",
+        "Niedostępność globalna liczona jest przy maksymalnej mocy TX i najniższej modulacji 4QAM/QPSK",
+        "Tabela czułości została skalibrowana z dostarczonego raportu Atoll (BER 1e-06)",
+        "Tłumienie w warunkach bezdeszczowych aproksymowano na podstawie referencji Atoll dla E-band (FSPL + gaz + para wodna)",
+        "Jeżeli zysk anteny z WLR jest pusty lub niewiarygodnie niski dla E-band, używana jest wartość zastępcza 50.5 dBi",
     ]
     if configured_modulation_key:
-        assumptions.append(f"KO planned modulation taken from WLR: {configured_modulation_key}")
+        assumptions.append(f"Planowaną modulację KO pobrano z WLR: {configured_modulation_key}")
     else:
         assumptions.append(
-            f"WLR did not provide a usable planned modulation; fallback {WORKING_PLANNED_MODULATION_FALLBACK} used for KO"
+            f"WLR nie podał użytecznej planowanej modulacji; dla KO użyto wartości zastępczej {WORKING_PLANNED_MODULATION_FALLBACK}"
         )
     assumptions.append(
-        f"Lowest modulation for outage uses fallback {lowest_modulation_label} until explicit field is available in WLR"
+        f"Najniższa modulacja do liczenia niedostępności używa wartości zastępczej {lowest_modulation_label}, dopóki w WLR nie będzie jawnego pola"
     )
-    assumptions.append("Current WLR parser sees only one explicit modulation field in this format; separate planned/reference/lowest fields are not yet exposed by the file")
+    assumptions.append("Aktualny parser WLR widzi w tym formacie tylko jedno jawne pole modulacji; osobne pola planned/reference/lowest nie są jeszcze wystawione przez plik")
     if configured_tx_dbm is not None:
         assumptions.append(
-            f"Configured WLR TX found: {configured_tx_dbm:.1f} dBm; planning cap uses {max_tx_power_dbm:.1f} dBm "
-            f"until radio max from UKE/vendor is confirmed"
+            f"WLR podaje TX={configured_tx_dbm:.1f} dBm; do planowania przyjęto limit {max_tx_power_dbm:.1f} dBm do czasu potwierdzenia maksymalnej mocy z UKE lub od producenta"
         )
     else:
-        assumptions.append(f"No explicit WLR max TX found, fallback cap {WORKING_MAX_TX_FALLBACK_DBM:.1f} dBm used")
+        assumptions.append(f"WLR nie podaje jawnej maksymalnej mocy TX; użyto wartości zastępczej {WORKING_MAX_TX_FALLBACK_DBM:.1f} dBm")
     if getattr(record, "catalog_pattern_pair_count", 0) or getattr(record, "fallback_pattern_pair_count", 0):
         assumptions.append(
             f"Charakterystyki anten dla najlepszego kanalu: katalog={getattr(record, 'catalog_pattern_pair_count', 0)}, "
-            f"fallback={getattr(record, 'fallback_pattern_pair_count', 0)}"
+            f"zastępcze={getattr(record, 'fallback_pattern_pair_count', 0)}"
         )
 
     warnings: list[str] = []
@@ -1195,7 +1205,7 @@ async def _run_analysis(request: AnalyzeRequest, *, trigger: str) -> tuple[Analy
                 amber_conflicts=0,
                 green_conflicts=0,
                 candidate_links_count=0,
-                summary="Nie znaleziono kanału ACCEPTED w analizowanym planie.",
+                summary="Nie znaleziono kanału dopuszczonego w analizowanym planie.",
                 best_explanation="Brak kanału spełniającego próg degradacji 1.0 dB i progi CI.",
                 rejection_reasons=[],
                 top_conflicts=[],
@@ -1476,9 +1486,9 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
 
     label_width = 40 * mm
     y = _draw_kv_row(pdf, y, "Link:", response.request.link_name or "-", label_width, page_width)
-    y = _draw_kv_row(pdf, y, "Upload ID:", response.request.upload_id or "-", label_width, page_width)
-    y = _draw_kv_row(pdf, y, "Adres A:", _format_endpoint(parsed_request, parsed_request.site_a, "Site A"), label_width, page_width)
-    y = _draw_kv_row(pdf, y, "Adres B:", _format_endpoint(parsed_request, parsed_request.site_b, "Site B"), label_width, page_width)
+    y = _draw_kv_row(pdf, y, "Identyfikator uploadu:", response.request.upload_id or "-", label_width, page_width)
+    y = _draw_kv_row(pdf, y, "Adres A:", _format_endpoint(parsed_request, parsed_request.site_a, "Punkt A"), label_width, page_width)
+    y = _draw_kv_row(pdf, y, "Adres B:", _format_endpoint(parsed_request, parsed_request.site_b, "Punkt B"), label_width, page_width)
     y = _draw_kv_row(pdf, y, "Plan / pasmo:", f"{response.request.plan_symbol or '-'} / {response.request.channel_width_mhz or '-'} MHz", label_width, page_width)
     y = _draw_kv_row(
         pdf,
@@ -1501,8 +1511,8 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
         y,
         "Podsumowanie:",
         (
-            f"ACCEPTED {response.summary.accepted_count}, CONDITIONAL {response.summary.conditional_count}, "
-            f"REJECTED {response.summary.rejected_count}, analizowane lacza {response.summary.candidate_links_count}"
+            f"dopuszczone {response.summary.accepted_count}, warunkowe {response.summary.conditional_count}, "
+            f"odrzucone {response.summary.rejected_count}, analizowane łącza {response.summary.candidate_links_count}"
         ),
         label_width,
         page_width,
@@ -1518,6 +1528,7 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
         plan = response.link_budget_plan
         y = _draw_kv_row(pdf, y, "Kanal:", plan.channel_label or "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "Planowana modulacja:", plan.planned_modulation or "-", label_width, page_width)
+        y = _draw_kv_row(pdf, y, "Najnizsza modulacja:", plan.lowest_modulation or "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "ATPC:", "ON" if plan.atpc_enabled else "OFF", label_width, page_width)
         y = _draw_kv_row(pdf, y, "Min moc nadajnika [dBm]:", f"{plan.min_tx_power_dbm:.0f}" if plan.min_tx_power_dbm is not None else "-", label_width, page_width)
         y = _draw_kv_row(pdf, y, "Maks./ust. moc odbierana [dBm]:", f"{plan.set_rx_power_dbm:.0f}" if plan.set_rx_power_dbm is not None else "-", label_width, page_width)
@@ -1577,7 +1588,7 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
     table_x = 16 * mm
     table_width = page_width - 32 * mm
     col_widths = [12 * mm, 22 * mm, 22 * mm, 14 * mm, 24 * mm, 18 * mm, table_width - (12 + 22 + 22 + 14 + 24 + 18) * mm]
-    headers = ["Lp.", "A->B", "B->A", "Pol.", "Status", "Score", "Uzasadnienie"]
+    headers = ["Lp.", "A->B", "B->A", "Pol.", "Status", "Wynik", "Uzasadnienie"]
     row_height = 7 * mm
 
     pdf.setFillColor(HexColor("#e2e8f0"))
@@ -1616,7 +1627,7 @@ def _build_report_pdf(response: AnalyzeResponse, parsed_request, source_summary:
             item.channel_ab,
             item.channel_ba,
             item.polarization,
-            item.status or "-",
+            _translate_status_pl(item.status),
             f"{item.score:.1f}",
             (item.summary or item.best_explanation or "-").replace("ZGODNY (TAK) — ", "").replace("WARUNKOWY (KOORDYNACJA) — ", "").replace("NIEZGODNY (NIE) — ", ""),
         ]

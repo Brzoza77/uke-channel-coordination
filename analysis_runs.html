@@ -11,14 +11,14 @@
     <header class="page-header">
       <div>
         <h1>Log analiz WLR</h1>
-        <p class="subtitle">Osobny widok operatorski do obserwacji uruchomien analizy, czasow wykonania i wynikow bez grzebania w pliku JSONL.</p>
+        <p class="subtitle">Osobny widok operatorski do obserwacji uruchomień analizy, czasów wykonania i wyników bez zaglądania do pliku JSONL.</p>
       </div>
       <div class="header-actions">
         <nav class="header-links" aria-label="Nawigacja">
-          <a class="header-link" href="/">Dashboard</a>
+          <a class="header-link" href="/">Panel główny</a>
           <a class="header-link" href="/workflow" target="_blank" rel="noopener">Workflow UKE</a>
         </nav>
-        <div class="status-pill" id="runsHealthStatus">Runs: ladowanie</div>
+        <div class="status-pill" id="runsHealthStatus">Analizy: ładowanie</div>
       </div>
     </header>
 
@@ -26,8 +26,8 @@
       <section class="panel panel-wide">
         <div class="toolbar-row">
           <div class="toggle-row">
-            <button type="button" id="refreshRunsBtn">Odswiez</button>
-            <label><input type="checkbox" id="autoRefreshRuns" checked> Auto-refresh 15s</label>
+            <button type="button" id="refreshRunsBtn">Odśwież</button>
+            <label><input type="checkbox" id="autoRefreshRuns" checked> Auto-odświeżanie co 15 s</label>
           </div>
           <div id="runsMeta" class="pill-note">Brak danych</div>
         </div>
@@ -56,15 +56,15 @@
                 <th>Koniec</th>
                 <th>Czas [s]</th>
                 <th>Status</th>
-                <th>Trigger</th>
+                <th>Źródło</th>
                 <th>Link</th>
-                <th>Zadany kanal</th>
-                <th>Najlepszy kanal</th>
+                <th>Zadany kanał</th>
+                <th>Najlepszy kanał</th>
                 <th>Wynik</th>
               </tr>
             </thead>
             <tbody id="runsTableBody">
-              <tr><td colspan="8" class="empty-cell">Brak wpisow.</td></tr>
+              <tr><td colspan="8" class="empty-cell">Brak wpisów.</td></tr>
             </tbody>
           </table>
         </div>

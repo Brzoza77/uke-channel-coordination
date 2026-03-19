@@ -40,11 +40,11 @@
     const edges = visibleEdges(payload);
     const cards = [
       ["SQLite", payload.sqlite_path || "-"],
-      ["Source DB", payload.source_db || "-"],
+      ["Źródłowa baza", payload.source_db || "-"],
       ["Tabele", payload.table_count || 0],
       ["Relacje widoczne", edges.length],
-      ["Relacje ogolem", payload.edge_count || 0],
-      ["DOT", payload.dot_available ? "dostepny" : "brak"]
+      ["Relacje ogółem", payload.edge_count || 0],
+      ["DOT", payload.dot_available ? "dostępny" : "brak"]
     ];
     summaryEl.innerHTML = cards.map(([label, value]) => `
       <div class="stat-card">
@@ -78,7 +78,7 @@
 
   async function renderGraph(payload) {
     if (!window.mermaid) {
-      viewportEl.innerHTML = `<div class="empty-cell">Brak biblioteki Mermaid w przegladarce.</div>`;
+      viewportEl.innerHTML = `<div class="empty-cell">Brak biblioteki Mermaid w przeglądarce.</div>`;
       return;
     }
 
@@ -112,8 +112,8 @@
     currentPayload = payload;
     renderSummary(payload);
     renderEdges(payload);
-    metaEl.textContent = `${payload.sqlite_path || "-"} | tables: ${payload.table_count || 0} | edges: ${visibleEdges(payload).length}`;
-    stateEl.textContent = "Graf zaladowany.";
+    metaEl.textContent = `${payload.sqlite_path || "-"} | tabele: ${payload.table_count || 0} | relacje: ${visibleEdges(payload).length}`;
+    stateEl.textContent = "Graf załadowany.";
     stateEl.classList.remove("error");
     dotLinkEl.style.display = payload.dot_available ? "inline-flex" : "none";
     if (payload.dot_url) {
@@ -136,10 +136,10 @@
       `;
       viewportEl.innerHTML = `<div class="empty-cell">${escapeHtml(error.message)}</div>`;
       edgesBodyEl.innerHTML = `<tr><td colspan="5" class="empty-cell">${escapeHtml(error.message)}</td></tr>`;
-      metaEl.textContent = "Brak workflow graph.";
+      metaEl.textContent = "Brak grafu workflow.";
       stateEl.textContent = error.message;
       stateEl.classList.add("error");
-      setStatus(false, `Workflow error: ${error.message}`);
+      setStatus(false, `Błąd workflow: ${error.message}`);
     }
   }
 
