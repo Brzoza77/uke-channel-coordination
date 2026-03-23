@@ -285,6 +285,46 @@ def _normalize_modulation_label(value: str | None) -> str | None:
     return normalized or None
 
 
+def _resolve_supported_modulation_key(value: str | None) -> tuple[str, str | None, str | None]:
+    normalized = _normalize_modulation_label(value)
+    if not normalized:
+        return WORKING_PLANNED_MODULATION_FALLBACK, None, None
+
+    aliases = {
+        "QPSK": "4QAM",
+        "4PSK": "4QAM",
+    }
+    aliased = aliases.get(normalized, normalized)
+    if aliased in ATOLL_SENSITIVITY_DBM:
+        note = None
+        if aliased != normalized:
+            note = f"Modulację {normalized} zmapowano na {aliased} do obliczeń czułości."
+        return aliased, normalized, note
+
+    qam_match = re.match(r"^(\d+)QAM$", aliased)
+    if qam_match:
+        requested_order = int(qam_match.group(1))
+        supported_orders = sorted(
+            int(key[:-3])
+            for key in ATOLL_SENSITIVITY_DBM
+            if key.endswith("QAM") and key[:-3].isdigit()
+        )
+        lower_or_equal = [order for order in supported_orders if order <= requested_order]
+        resolved_order = max(lower_or_equal) if lower_or_equal else min(supported_orders)
+        resolved_key = f"{resolved_order}QAM"
+        note = (
+            f"Modulacja {normalized} nie ma jeszcze własnego progu czułości; "
+            f"do obliczeń użyto najbliższego wspieranego poziomu {resolved_key}."
+        )
+        return resolved_key, normalized, note
+
+    note = (
+        f"Modulacja {normalized} nie jest jeszcze wspierana przez tabelę czułości; "
+        f"do obliczeń użyto wartości zastępczej {WORKING_PLANNED_MODULATION_FALLBACK}."
+    )
+    return WORKING_PLANNED_MODULATION_FALLBACK, normalized, note
+
+
 def _estimate_clear_air_specific_loss_db_per_km(freq_ghz: float) -> float:
     if freq_ghz >= 70.0:
         return max(0.25, min(0.40, 0.184 + 0.00172 * freq_ghz))
@@ -349,8 +389,10 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
     configured_tx_dbm = max(configured_tx_values) if configured_tx_values else None
     max_tx_power_dbm = max([WORKING_MAX_TX_FALLBACK_DBM, *configured_tx_values])
 
-    configured_modulation_key = _normalize_modulation_label(parsed_request.modulation)
-    modulation_key = configured_modulation_key or WORKING_PLANNED_MODULATION_FALLBACK
+    modulation_key, configured_modulation_key, modulation_resolution_note = _resolve_supported_modulation_key(
+        parsed_request.modulation
+    )
+    display_modulation_key = configured_modulation_key or modulation_key
     lowest_modulation_key = WORKING_LOWEST_MODULATION
     lowest_modulation_label = "4QAM/QPSK"
 
@@ -472,6 +514,8 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         assumptions.append(
             f"WLR nie podał użytecznej planowanej modulacji; dla KO użyto wartości zastępczej {WORKING_PLANNED_MODULATION_FALLBACK}"
         )
+    if modulation_resolution_note:
+        assumptions.append(modulation_resolution_note)
     assumptions.append(
         f"Najniższa modulacja do liczenia niedostępności używa obecnie wartości roboczej {lowest_modulation_label}, dopóki WLR nie wystawi osobnego pola minimum/reference"
     )
@@ -538,7 +582,7 @@ def _build_link_budget_plan(parsed_request, record) -> LinkBudgetPlan | None:
         status=record.status,
         gate_status=record.access_fkand_gate_status,
         path_length_km=round(path_length_km, 3),
-        planned_modulation=modulation_key,
+        planned_modulation=display_modulation_key,
         lowest_modulation=lowest_modulation_label,
         atpc_enabled=WORKING_ATPC_ENABLED,
         min_tx_power_dbm=round(min_tx_power_dbm),
