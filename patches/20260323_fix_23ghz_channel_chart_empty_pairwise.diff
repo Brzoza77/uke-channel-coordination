@@ -1,0 +1,31 @@
+diff --git a/app.py b/app.py
+index bf76765..b0e88dd 100644
+--- a/app.py
++++ b/app.py
+@@ -1286,6 +1286,15 @@ def _status_worst(*values: str | None) -> str | None:
+     return max(candidates, key=lambda value: rank.get(value, 99))
+ 
+ 
++def _record_td_max_for_direction(record, direction: str) -> float:
++    values = [
++        result.degradation_db
++        for result in record.pairwise_results
++        if result.direction == direction and result.degradation_db is not None
++    ]
++    return max(values) if values else 0.0
++
++
+ def _build_channel_chart(candidate_frequency_records, parsed_request, recommended_key: tuple[str, str, str] | None = None) -> ChannelInterferenceChart:
+     items: list[ChannelInterferenceBar] = []
+     threshold_db = 1.0
+@@ -1307,8 +1316,8 @@ def _build_channel_chart(candidate_frequency_records, parsed_request, recommende
+             metric_ab_db = max((record.total_td_ab_db for record in records), default=0.0)
+             metric_ba_db = max((record.total_td_ba_db for record in records), default=0.0)
+             metric_db = max(metric_ab_db, metric_ba_db)
+-            td_max_ab_db = max((max((result.degradation_db or 0.0) for result in record.pairwise_results if result.direction == "A->B") for record in records), default=0.0)
+-            td_max_ba_db = max((max((result.degradation_db or 0.0) for result in record.pairwise_results if result.direction == "B->A") for record in records), default=0.0)
++            td_max_ab_db = max((_record_td_max_for_direction(record, "A->B") for record in records), default=0.0)
++            td_max_ba_db = max((_record_td_max_for_direction(record, "B->A") for record in records), default=0.0)
+             td_max_db = max(td_max_ab_db, td_max_ba_db)
+             requested = channel_key == (parsed_request.channel_ab, parsed_request.channel_ba)
+             recommended = recommended_key is not None and channel_key == (recommended_key[0], recommended_key[1])
