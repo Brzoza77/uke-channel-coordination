@@ -12,7 +12,7 @@ STATE_FILE="${UKE_STATE_FILE:-$SOURCE_ROOT/state.json}"
 UPDATE_LOG="${UKE_UPDATE_LOG:-logs/uke_publication_update.json}"
 DOWNLOAD_PLANY="${UKE_DOWNLOAD_PLANY:-0}"
 
-MDB_ARGS=("LR_Konsultacja_349.mdb" "db1.mdb" "db2.mdb")
+MDB_ARGS=("LR_Konsultacja_350.mdb" "db1.mdb" "db2.mdb")
 
 # Szuka lokalnie wgranego archiwum RAR lub pliku MDB w katalogu głównym.
 # Zwraca przez stdout ścieżki do trzech plików MDB (lr_konsultacja db1 db2),
@@ -148,14 +148,16 @@ python3 results/extract_uke_antennas_sqlite.py \
   --mdb "${MDB_ARGS[0]}" \
   --sqlite "$ANTENNA_SQLITE_PATH"
 
+SOURCE_DB="$(basename "${MDB_ARGS[0]}" .mdb)"
+
 python3 results/analyze_uke_workflow_sqlite.py \
   --sqlite "$SQLITE_PATH" \
-  --source-db LR_Konsultacja_349 \
+  --source-db "$SOURCE_DB" \
   --out logs/uke_workflow_sqlite_summary.json
 
 python3 results/build_uke_workflow_graph.py \
   --sqlite "$SQLITE_PATH" \
-  --source-db LR_Konsultacja_349 \
+  --source-db "$SOURCE_DB" \
   --out-json logs/uke_workflow_graph.json \
   --out-dot logs/uke_workflow_graph.dot
 

@@ -19,23 +19,41 @@ CACHE_DIR = BASE_DIR / ".cache"
 CACHE_DIR.mkdir(exist_ok=True)
 CACHE_FILE = CACHE_DIR / "permissions_cache.pkl"
 INTERNAL_SQLITE_PATH = BASE_DIR / "data" / "uke_workflow.sqlite"
-INTERNAL_REQUIRED_TABLES = (
-    "lr_konsultacja_349__decyzja",
-    "lr_konsultacja_349__przeslo_decyzji",
-    "lr_konsultacja_349__przeslo",
-    "lr_konsultacja_349__zastosowana_antena",
-    "lr_konsultacja_349__stacja",
-    "lr_konsultacja_349__konstrukcja",
-    "lr_konsultacja_349__obiekt_stacji",
-    "lr_konsultacja_349__plan",
-    "lr_konsultacja_349__nadajnik",
-    "lr_konsultacja_349__pasmo_anteny",
-    "lr_konsultacja_349__antena",
-    "lr_konsultacja_349__producent",
+_REQUIRED_TABLE_SUFFIXES = (
+    "decyzja",
+    "przeslo_decyzji",
+    "przeslo",
+    "zastosowana_antena",
+    "stacja",
+    "konstrukcja",
+    "obiekt_stacji",
+    "plan",
+    "nadajnik",
+    "pasmo_anteny",
+    "antena",
+    "producent",
 )
 
 PLAN_DIR = BASE_DIR / "plany"
 PLANS_CACHE_FILE = CACHE_DIR / "plans_cache.pkl"
+
+
+@lru_cache(maxsize=4)
+def _konsultacja_prefix(sqlite_path_str: str = str(INTERNAL_SQLITE_PATH)) -> str:
+    """Auto-detects the lr_konsultacja_NNN prefix from sqlite_master.
+    Falls back to lr_konsultacja_349 if nothing is found."""
+    try:
+        with sqlite3.connect(sqlite_path_str) as con:
+            row = con.execute(
+                "SELECT name FROM sqlite_master"
+                " WHERE type='table' AND name LIKE 'lr_konsultacja_%__przeslo'"
+                " ORDER BY name DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                return row[0].rsplit("__", 1)[0]
+    except sqlite3.Error:
+        pass
+    return "lr_konsultacja_349"
 
 
 HEADER_ALIASES = {
@@ -346,9 +364,9 @@ def internal_catalog_available(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> bool
         return False
     try:
         with sqlite3.connect(sqlite_path) as con:
-            cur = con.cursor()
-            existing = {row[0] for row in cur.execute("select name from sqlite_master where type='table'")}
-        return all(table in existing for table in INTERNAL_REQUIRED_TABLES)
+            existing = {row[0] for row in con.execute("select name from sqlite_master where type='table'")}
+        prefix = _konsultacja_prefix(str(sqlite_path))
+        return all(f"{prefix}__{suffix}" in existing for suffix in _REQUIRED_TABLE_SUFFIXES)
     except sqlite3.Error:
         return False
 
@@ -368,7 +386,8 @@ def _load_internal_radio_profiles(sqlite_path_str: str = str(INTERNAL_SQLITE_PAT
     sqlite_path = Path(sqlite_path_str)
     if not sqlite_path.exists():
         return ()
-    query = """
+    p = _konsultacja_prefix(sqlite_path_str)
+    query = f"""
     SELECT
         n.nadajnik_id,
         n.typ_nadajnika,
@@ -377,8 +396,8 @@ def _load_internal_radio_profiles(sqlite_path_str: str = str(INTERNAL_SQLITE_PAT
         n.atpc AS atpc_attenuation_db,
         n.szer_pasma_odb AS receiver_bandwidth_mhz,
         COALESCE(n.poprawna, 0) AS is_verified
-    FROM lr_konsultacja_349__nadajnik n
-    LEFT JOIN lr_konsultacja_349__producent prod
+    FROM {p}__nadajnik n
+    LEFT JOIN {p}__producent prod
       ON prod.producent_id = n.producent_id
     ORDER BY
         COALESCE(prod.nazwa_producenta, ''),
@@ -1101,11 +1120,12 @@ def normalize_plan_symbol_key(symbol: str) -> str:
 
 
 def load_plan_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> PlanDataset:
+    p = _konsultacja_prefix(str(sqlite_path))
     with sqlite3.connect(sqlite_path) as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
         plan_rows = cur.execute(
-            """
+            f"""
             SELECT
                 p.plan_id,
                 p.symbol_planu,
@@ -1128,7 +1148,7 @@ def load_plan_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_P
                 p.rodzaj_planu,
                 p.zalecany_wybor_kanalow,
                 p.uwagi
-            FROM lr_konsultacja_349__plan p
+            FROM {p}__plan p
             ORDER BY p.plan_id
             """
         ).fetchall()
@@ -1140,11 +1160,11 @@ def load_plan_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_P
                 continue
 
             channel_rows = cur.execute(
-                """
+                f"""
                 SELECT
                     numer_kana_u AS channel_number,
                     MIN(czestotliwosc_przydzielona) AS freq_ghz
-                FROM lr_konsultacja_349__przeslo
+                FROM {p}__przeslo
                 WHERE numer_planu = ?
                   AND numer_kana_u IS NOT NULL
                   AND czestotliwosc_przydzielona IS NOT NULL
@@ -1332,8 +1352,9 @@ def row_to_record(
     )
 
 
-def _internal_catalog_query() -> str:
-    return """
+def _internal_catalog_query(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> str:
+    p = _konsultacja_prefix(str(sqlite_path))
+    return f"""
     SELECT
         d.nrdecyzji AS permit_number,
         d.data_wydania,
@@ -1379,50 +1400,50 @@ def _internal_catalog_query() -> str:
         ob_o.powiat AS rx_province,
         k_o.szer_geo AS rx_lat,
         k_o.dlug_geo AS rx_lon
-    FROM lr_konsultacja_349__decyzja d
-    JOIN lr_konsultacja_349__przeslo_decyzji pd
+    FROM {p}__decyzja d
+    JOIN {p}__przeslo_decyzji pd
       ON pd.decyzja_id = d.decyzja_id
-    JOIN lr_konsultacja_349__przeslo p
+    JOIN {p}__przeslo p
       ON p.prz_s_o_id = pd.prz_s_o_id
-    LEFT JOIN lr_konsultacja_349__plan pl
+    LEFT JOIN {p}__plan pl
       ON pl.plan_id = p.numer_planu
-    LEFT JOIN lr_konsultacja_349__nadajnik n
+    LEFT JOIN {p}__nadajnik n
       ON n.nadajnik_id = p.nadajnik_id
-    LEFT JOIN lr_konsultacja_349__producent prod_radio
+    LEFT JOIN {p}__producent prod_radio
       ON prod_radio.producent_id = n.producent_id
-    LEFT JOIN lr_konsultacja_349__zastosowana_antena za_n
+    LEFT JOIN {p}__zastosowana_antena za_n
       ON za_n.zastosowana_antena_id = p.antena_stacji_n_id
-    LEFT JOIN lr_konsultacja_349__stacja st_n
+    LEFT JOIN {p}__stacja st_n
       ON st_n.stacja_id = za_n.stacja_id
-    LEFT JOIN lr_konsultacja_349__osoba os_n
+    LEFT JOIN {p}__osoba os_n
       ON os_n.wnioskodawca_id = st_n.u_ytkownik_id
-    LEFT JOIN lr_konsultacja_349__konstrukcja k_n
+    LEFT JOIN {p}__konstrukcja k_n
       ON k_n.konstrukcja_id = st_n.konstrukcja_id
-    LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_n
+    LEFT JOIN {p}__obiekt_stacji ob_n
       ON ob_n.obiekt_stacji_id = k_n.obiekt_stacji_id
-    LEFT JOIN lr_konsultacja_349__pasmo_anteny pa_n
+    LEFT JOIN {p}__pasmo_anteny pa_n
       ON pa_n.pasmo_anteny_id = p.pasmo_anteny_n_id
-    LEFT JOIN lr_konsultacja_349__antena a_n
+    LEFT JOIN {p}__antena a_n
       ON a_n.antena_id = pa_n.antena_id
-    LEFT JOIN lr_konsultacja_349__producent prod_n
+    LEFT JOIN {p}__producent prod_n
       ON prod_n.producent_id = a_n.producent_id
-    LEFT JOIN lr_konsultacja_349__zastosowana_antena za_o
+    LEFT JOIN {p}__zastosowana_antena za_o
       ON za_o.zastosowana_antena_id = p.antena_stacji_o_id
-    LEFT JOIN lr_konsultacja_349__stacja st_o
+    LEFT JOIN {p}__stacja st_o
       ON st_o.stacja_id = za_o.stacja_id
-    LEFT JOIN lr_konsultacja_349__osoba os_o
+    LEFT JOIN {p}__osoba os_o
       ON os_o.wnioskodawca_id = st_o.u_ytkownik_id
-    LEFT JOIN lr_konsultacja_349__konstrukcja k_o
+    LEFT JOIN {p}__konstrukcja k_o
       ON k_o.konstrukcja_id = st_o.konstrukcja_id
-    LEFT JOIN lr_konsultacja_349__obiekt_stacji ob_o
+    LEFT JOIN {p}__obiekt_stacji ob_o
       ON ob_o.obiekt_stacji_id = k_o.obiekt_stacji_id
-    LEFT JOIN lr_konsultacja_349__pasmo_anteny pa_o
+    LEFT JOIN {p}__pasmo_anteny pa_o
       ON pa_o.pasmo_anteny_id = p.pasmo_anteny_o_id
-    LEFT JOIN lr_konsultacja_349__antena a_o
+    LEFT JOIN {p}__antena a_o
       ON a_o.antena_id = pa_o.antena_id
-    LEFT JOIN lr_konsultacja_349__producent prod_o
+    LEFT JOIN {p}__producent prod_o
       ON prod_o.producent_id = a_o.producent_id
-    LEFT JOIN lr_konsultacja_349__przesla_do_modyfikacji pm
+    LEFT JOIN {p}__przesla_do_modyfikacji pm
       ON pm.prz_s_o_modyfikowane_id = p.prz_s_o_id
     """
 
@@ -1512,14 +1533,15 @@ def _row_to_internal_record(row: sqlite3.Row, source_filename: str, source_sheet
 
 
 def load_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) -> PermissionDataset:
+    sheet_name = _konsultacja_prefix(str(sqlite_path)).replace("lr_konsultacja_", "LR_Konsultacja_")
     with sqlite3.connect(sqlite_path) as con:
         con.row_factory = sqlite3.Row
         cur = con.cursor()
-        rows = cur.execute(_internal_catalog_query() + "\nORDER BY d.nrdecyzji, p.prz_s_o_id").fetchall()
+        rows = cur.execute(_internal_catalog_query(sqlite_path) + "\nORDER BY d.nrdecyzji, p.prz_s_o_id").fetchall()
 
     records: list[PermitRecord] = []
     for row in rows:
-        record = _row_to_internal_record(row, sqlite_path.name, "LR_Konsultacja_349")
+        record = _row_to_internal_record(row, sqlite_path.name, sheet_name)
         if record is not None:
             records.append(record)
 
@@ -1529,7 +1551,7 @@ def load_dataset_from_internal_sqlite(sqlite_path: Path = INTERNAL_SQLITE_PATH) 
         full_path=str(sqlite_path),
         file_size_bytes=stat.st_size,
         modified_at=datetime.fromtimestamp(stat.st_mtime),
-        sheet_name="LR_Konsultacja_349",
+        sheet_name=sheet_name,
         rows_count=len(records),
     )
     return PermissionDataset(source=source, records=records)
@@ -1560,6 +1582,7 @@ def _get_internal_duplex_links_window_cached(
     query = _internal_catalog_query() + """
     WHERE p.czestotliwosc_przydzielona BETWEEN ? AND ?
       AND p.status NOT IN (10, 13, 14)
+      AND p.status NOT IN (10, 13, 14)
       AND p.stan > 3
       AND k_n.szer_geo IS NOT NULL
       AND k_n.dlug_geo IS NOT NULL
@@ -1580,9 +1603,10 @@ def _get_internal_duplex_links_window_cached(
         cur = con.cursor()
         rows = cur.execute(query, params).fetchall()
 
+    sheet = _konsultacja_prefix().replace("lr_konsultacja_", "LR_Konsultacja_")
     records: list[PermitRecord] = []
     for row in rows:
-        record = _row_to_internal_record(row, INTERNAL_SQLITE_PATH.name, "LR_Konsultacja_349")
+        record = _row_to_internal_record(row, INTERNAL_SQLITE_PATH.name, sheet)
         if record is not None:
             records.append(record)
     report = pair_duplex_links(records)
@@ -1653,10 +1677,12 @@ def get_source_summary() -> dict[str, Any]:
             "Najpierw uruchom ./refresh_uke_sqlite.sh"
         )
 
+    p = _konsultacja_prefix()
+    sheet_name = p.replace("lr_konsultacja_", "LR_Konsultacja_")
     stat = INTERNAL_SQLITE_PATH.stat()
     with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
         cur = con.cursor()
-        rows_count = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
+        rows_count = cur.execute(f"select count(*) from {p}__przeslo").fetchone()[0]
     return {
         "source_kind": "sqlite",
         "antenna_catalog_present": catalog_exists(DEFAULT_CATALOG_PATH),
@@ -1664,7 +1690,7 @@ def get_source_summary() -> dict[str, Any]:
         "filename": INTERNAL_SQLITE_PATH.name,
         "full_path": str(INTERNAL_SQLITE_PATH),
         "rows_count": rows_count,
-        "sheet_name": "LR_Konsultacja_349",
+        "sheet_name": sheet_name,
         "file_size_bytes": stat.st_size,
         "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
     }
@@ -1672,11 +1698,12 @@ def get_source_summary() -> dict[str, Any]:
 
 def get_pairing_summary() -> dict[str, Any]:
     if internal_catalog_available():
+        p = _konsultacja_prefix()
         with sqlite3.connect(INTERNAL_SQLITE_PATH) as con:
             cur = con.cursor()
-            total_records = cur.execute("select count(*) from lr_konsultacja_349__przeslo").fetchone()[0]
+            total_records = cur.execute(f"select count(*) from {p}__przeslo").fetchone()[0]
             duplex_links = cur.execute(
-                """
+                f"""
                 select count(*) from (
                     select
                         d.nrdecyzji,
@@ -1685,10 +1712,10 @@ def get_pairing_summary() -> dict[str, Any]:
                         replace(coalesce(p.numer_kana_u, ''), '''', '') as channel_base,
                         min(p.antena_stacji_n_id, p.antena_stacji_o_id) as endpoint_a,
                         max(p.antena_stacji_n_id, p.antena_stacji_o_id) as endpoint_b
-                    from lr_konsultacja_349__decyzja d
-                    join lr_konsultacja_349__przeslo_decyzji pd on pd.decyzja_id = d.decyzja_id
-                    join lr_konsultacja_349__przeslo p on p.prz_s_o_id = pd.prz_s_o_id
-                    left join lr_konsultacja_349__plan pl on pl.plan_id = p.numer_planu
+                    from {p}__decyzja d
+                    join {p}__przeslo_decyzji pd on pd.decyzja_id = d.decyzja_id
+                    join {p}__przeslo p on p.prz_s_o_id = pd.prz_s_o_id
+                    left join {p}__plan pl on pl.plan_id = p.numer_planu
                     group by 1,2,3,4,5,6
                 )
                 """
