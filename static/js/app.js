@@ -505,9 +505,19 @@
     const overThresholdCount = chartSection.items.filter((item) => Number(item.metric_db || 0) > thresholdDb).length;
     const xpicGrouped = chartSection.items.some((item) => item.xpic_grouped);
 
+    // Unique channel pairs (strip prime, normalize order)
+    const uniqueChannelPairs = new Set(chartSection.items.map((item) => {
+      const a = item.channel_ab.replace(/'/g, "");
+      const b = item.channel_ba.replace(/'/g, "");
+      return a === b ? a : [a, b].sort().join("/");
+    })).size;
+    const variantsInfo = uniqueChannelPairs < chartSection.items.length
+      ? ` (${uniqueChannelPairs} par × kierunek × polaryzacja)`
+      : "";
+
     channelChartStateEl.classList.remove("muted", "success", "error");
     channelChartStateEl.classList.add(overThresholdCount > 0 ? "error" : "success");
-    channelChartStateEl.textContent = `Kanały w paśmie: ${chartSection.items.length}. Kanały z degradacją skumulowaną TDsum > ${thresholdDb.toFixed(1)} dB: ${overThresholdCount}.`;
+    channelChartStateEl.textContent = `Warianty koordynacyjne: ${chartSection.items.length}${variantsInfo}. Warianty z TDsum > ${thresholdDb.toFixed(1)} dB: ${overThresholdCount}.`;
 
     const barsHtml = chartSection.items.map((item) => {
       const metricDb = Number(item.metric_db || 0);
